@@ -1,0 +1,31 @@
+mikrotik-opencode-workspace/
+
+# Local environment secrets
+.env
+
+# Local settings
+.claude/
+.mcp.json
+MEMORY.local.md
+
+# Local backup artifacts
+backups/
+exports
+
+# Local custom CA certificates
+certs/**
+!certs/README.md
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+mikrotik-mcp
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+.agents
