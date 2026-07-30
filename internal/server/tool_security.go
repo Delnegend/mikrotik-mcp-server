@@ -11,28 +11,84 @@ import (
 )
 
 func registerSecurityTools(s *server.MCPServer, cl *client.RouterOSClient) {
-	reg := func(name, desc string, handler server.ToolHandlerFunc) {
-		s.AddTool(mcp.NewTool(name, mcp.WithDescription(desc)), handler)
-	}
+	addTool(s, mcp.NewTool("firewall_filter_list",
+		mcp.WithDescription("List firewall filter rules with optional chain, action, and disabled filters."),
+		mcp.WithString("chain", mcp.Description("Filter by chain")),
+		mcp.WithString("action", mcp.Description("Filter by action")),
+		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
+	), listHandler(cl, "/ip/firewall/filter"))
 
-	reg("firewall_filter_list", "List firewall filter rules with optional chain, action, and disabled filters.", listHandler(cl, "/ip/firewall/filter"))
-	reg("firewall_filter_add", "Add a firewall filter rule using RouterOS firewall attributes.", addHandler(cl, "/ip/firewall/filter"))
-	reg("firewall_filter_set", "Update a firewall filter rule by RouterOS item id.", setHandler(cl, "/ip/firewall/filter"))
-	reg("firewall_filter_remove", "Remove a firewall filter rule by RouterOS item id.", removeHandler(cl, "/ip/firewall/filter"))
-	reg("firewall_nat_list", "List firewall NAT rules with optional chain, action, and disabled filters.", listHandler(cl, "/ip/firewall/nat"))
-	reg("firewall_nat_add", "Add a firewall NAT rule using RouterOS firewall attributes.", addHandler(cl, "/ip/firewall/nat"))
-	reg("firewall_nat_set", "Update a firewall NAT rule by RouterOS item id.", setHandler(cl, "/ip/firewall/nat"))
-	reg("firewall_nat_remove", "Remove a firewall NAT rule by RouterOS item id.", removeHandler(cl, "/ip/firewall/nat"))
-	reg("firewall_rule_move", "Move a firewall filter or NAT rule to a new destination position or item id.", firewallRuleMoveHandler(cl))
-	reg("firewall_address_list_list", "List firewall address-list entries with optional list, address, and disabled filters.", listHandler(cl, "/ip/firewall/address-list"))
-	reg("firewall_address_list_add", "Add a firewall address-list entry using RouterOS firewall attributes.", addHandler(cl, "/ip/firewall/address-list"))
-	reg("firewall_address_list_remove", "Remove a firewall address-list entry by RouterOS item id.", removeHandler(cl, "/ip/firewall/address-list"))
+	addTool(s, mcp.NewTool("firewall_filter_add",
+		mcp.WithDescription("Add a firewall filter rule using RouterOS firewall attributes."),
+		mcp.WithObject("attributes", mcp.Required(), mcp.Description("Firewall filter attributes")),
+	), addHandler(cl, "/ip/firewall/filter"))
+
+	addTool(s, mcp.NewTool("firewall_filter_set",
+		mcp.WithDescription("Update a firewall filter rule by RouterOS item id."),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
+		mcp.WithObject("attributes", mcp.Required(), mcp.Description("Firewall filter attributes")),
+	), setHandler(cl, "/ip/firewall/filter"))
+
+	addTool(s, mcp.NewTool("firewall_filter_remove",
+		mcp.WithDescription("Remove a firewall filter rule by RouterOS item id."),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
+	), removeHandler(cl, "/ip/firewall/filter"))
+
+	addTool(s, mcp.NewTool("firewall_nat_list",
+		mcp.WithDescription("List firewall NAT rules with optional chain, action, and disabled filters."),
+		mcp.WithString("chain", mcp.Description("Filter by chain")),
+		mcp.WithString("action", mcp.Description("Filter by action")),
+		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
+	), listHandler(cl, "/ip/firewall/nat"))
+
+	addTool(s, mcp.NewTool("firewall_nat_add",
+		mcp.WithDescription("Add a firewall NAT rule using RouterOS firewall attributes."),
+		mcp.WithObject("attributes", mcp.Required(), mcp.Description("Firewall NAT attributes")),
+	), addHandler(cl, "/ip/firewall/nat"))
+
+	addTool(s, mcp.NewTool("firewall_nat_set",
+		mcp.WithDescription("Update a firewall NAT rule by RouterOS item id."),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
+		mcp.WithObject("attributes", mcp.Required(), mcp.Description("Firewall NAT attributes")),
+	), setHandler(cl, "/ip/firewall/nat"))
+
+	addTool(s, mcp.NewTool("firewall_nat_remove",
+		mcp.WithDescription("Remove a firewall NAT rule by RouterOS item id."),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
+	), removeHandler(cl, "/ip/firewall/nat"))
+
+	addTool(s, mcp.NewTool("firewall_rule_move",
+		mcp.WithDescription("Move a firewall filter or NAT rule to a new destination position or item id."),
+		mcp.WithString("table", mcp.Required(), mcp.Description("Firewall table: filter or nat")),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id to move")),
+		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination position or item id")),
+	), firewallRuleMoveHandler(cl))
+
+	addTool(s, mcp.NewTool("firewall_address_list_list",
+		mcp.WithDescription("List firewall address-list entries with optional list, address, and disabled filters."),
+		mcp.WithString("list_name", mcp.Description("Filter by address list name")),
+		mcp.WithString("address", mcp.Description("Filter by address")),
+		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
+	), listHandler(cl, "/ip/firewall/address-list"))
+
+	addTool(s, mcp.NewTool("firewall_address_list_add",
+		mcp.WithDescription("Add a firewall address-list entry using RouterOS firewall attributes."),
+		mcp.WithObject("attributes", mcp.Required(), mcp.Description("Address list attributes")),
+	), addHandler(cl, "/ip/firewall/address-list"))
+
+	addTool(s, mcp.NewTool("firewall_address_list_remove",
+		mcp.WithDescription("Remove a firewall address-list entry by RouterOS item id."),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
+	), removeHandler(cl, "/ip/firewall/address-list"))
 }
 
 func setHandler(cl *client.RouterOSClient, menu string) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		itemID := argString(req, "item_id", "")
-		attrs, err := helpers.RequireAttributes(req.Params.Arguments)
+		itemID, err := helpers.NormalizeRequiredString(argString(req, "item_id", ""), "item_id")
+		if err != nil {
+			return nil, err
+		}
+		attrs, err := helpers.RequireAttributes(argObject(req, "attributes"))
 		if err != nil {
 			return nil, err
 		}

@@ -22,29 +22,25 @@ var (
 )
 
 func registerFileTools(s *server.MCPServer, cl *client.RouterOSClient) {
-	reg := func(name, desc string, handler server.ToolHandlerFunc) {
-		s.AddTool(mcp.NewTool(name, mcp.WithDescription(desc)), handler)
-	}
-
-	s.AddTool(mcp.NewTool("system_backup_save",
+	addTool(s, mcp.NewTool("system_backup_save",
 		mcp.WithDescription("Create a RouterOS backup file on the router."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Backup name (without extension)")),
 	), backupSaveHandler(cl))
 
-	s.AddTool(mcp.NewTool("system_export",
+	addTool(s, mcp.NewTool("system_export",
 		mcp.WithDescription("Export RouterOS configuration to an .rsc file on the router."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Export file name (without extension)")),
 		mcp.WithBoolean("include_sensitive", mcp.Description("Include sensitive data")),
 		mcp.WithBoolean("compact", mcp.Description("Compact export")),
 	), exportHandler(cl))
 
-	s.AddTool(mcp.NewTool("file_download",
+	addTool(s, mcp.NewTool("file_download",
 		mcp.WithDescription("Download a router file into the local workspace."),
 		mcp.WithString("router_path", mcp.Required(), mcp.Description("Path of the file on the router")),
 		mcp.WithString("local_path", mcp.Description("Local destination path")),
 	), downloadHandler(cl))
 
-	s.AddTool(mcp.NewTool("system_backup_collect",
+	addTool(s, mcp.NewTool("system_backup_collect",
 		mcp.WithDescription("Create router backup artifacts and download them into the local workspace."),
 		mcp.WithString("name_prefix", mcp.Description("Prefix for backup filenames")),
 		mcp.WithBoolean("include_sensitive", mcp.Description("Include sensitive data in export")),
@@ -52,7 +48,12 @@ func registerFileTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("local_dir", mcp.Description("Local download directory")),
 	), backupCollectHandler(cl))
 
-	reg("file_list", "List router files with optional directory, name, and type filters.", listHandler(cl, "/file"))
+	addTool(s, mcp.NewTool("file_list",
+		mcp.WithDescription("List router files with optional directory, name, and type filters."),
+		mcp.WithString("directory", mcp.Description("Filter by directory")),
+		mcp.WithString("name", mcp.Description("Filter by file name")),
+		mcp.WithString("file_type", mcp.Description("Filter by file type (e.g. script, backup, export)")),
+	), listHandler(cl, "/file"))
 }
 
 func backupSaveHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {

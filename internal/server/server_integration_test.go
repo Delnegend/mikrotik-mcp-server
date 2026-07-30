@@ -446,7 +446,7 @@ func TestIntegrationHealthcheckAllHealthy(t *testing.T) {
 		}, nil
 	}
 
-	hcResolveSCPPrivateKeyPath = func() string { return "" }
+	hcResolveSCPPrivateKeyPath = func() (string, error) { return "", nil }
 
 	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
 	if err != nil {
@@ -580,7 +580,7 @@ func TestIntegrationHealthcheckAPIOkSCPFailed(t *testing.T) {
 	hcProbeSSHFingerprint = func(host string, port int, timeout time.Duration) (map[string]any, error) {
 		return map[string]any{"status": "ok"}, nil
 	}
-	hcResolveSCPPrivateKeyPath = func() string { return "" }
+	hcResolveSCPPrivateKeyPath = func() (string, error) { return "", nil }
 
 	cl := client.NewRouterOSClient("router.test", "admin", "secret")
 	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
@@ -615,7 +615,7 @@ func TestIntegrationHealthcheckAPIFailed(t *testing.T) {
 	hcProbeSSHFingerprint = func(host string, port int, timeout time.Duration) (map[string]any, error) {
 		return map[string]any{"status": "ok"}, nil
 	}
-	hcResolveSCPPrivateKeyPath = func() string { return "" }
+	hcResolveSCPPrivateKeyPath = func() (string, error) { return "", nil }
 
 	cl := client.NewRouterOSClient("router.test", "admin", "secret")
 	// Return a trap to make API fail

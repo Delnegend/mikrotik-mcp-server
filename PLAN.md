@@ -7,7 +7,7 @@
 >
 > **Coverage snapshot:** Python has 176 test functions across 4 files. Go has 96 across 7 files. Approximately 110 Python tests have no Go counterpart. Of the ~30 where both exist, roughly half use weaker assertions in Go (substring `contains()` vs exact sentence verification, no structured-content checks).
 >
-> **Progress:** 0 / ~250 tasks complete
+> **Progress:** Phase 0 ✓, Phase 1 ✓ — ~6 / ~250 tasks complete (verified by re-review 2026-07-30)
 
 ---
 
@@ -15,48 +15,32 @@
 
 Before any code changes, decide which divergences are intentional simplifications vs bugs.
 
-- [ ] **D1 — Structured content:** Python sets `structuredContent` on every tool result; Go never does.
-  - (a) Implement in Go — ~20 min change to two formatting functions.
-  - (b) Accept as intentional delta, document as known gap.
-  - **Recommend: (a)** — clients expecting structured output fail silently against Go otherwise.
+- [x] **D1 — Structured content:** Python sets `structuredContent` on every tool result; Go never does.
+  - Decision: **(a) Implement in Go** — Phase 2.1.
 
-- [ ] **D2 — Panics in `normalize*` functions:** Python raises `ValueError`; Go panics.
-  - (a) Wrap every handler in `recover()` — 5 min change, preserves existing client API.
-  - (b) Replace panics with returned errors throughout — ~2 hr refactor.
-  - **Recommend: (a)** — matches Python error semantics with minimal change.
+- [x] **D2 — Panics in `normalize*` functions:** Python raises `ValueError`; Go panics.
+  - Decision: **(a) Wrap every handler in `recover()`** — Phase 1.4.
 
-- [ ] **D3 — `ResolveSCPPrivateKeyPath`:** Python errors on configured-but-missing key; Go returns `""` (silent fallback to password).
-  - (a) Port Python behaviour (error).
-  - (b) Document silent-fallback as feature.
-  - **Recommend: (a)** — security-relevant.
+- [x] **D3 — `ResolveSCPPrivateKeyPath`:** Python errors on configured-but-missing key; Go returns `""` (silent fallback to password).
+  - Decision: **(a) Port Python behaviour (error)** — Phase 1.6.
 
-- [ ] **D4 — `shellQuote` always-quotes:** Go wraps every string in `'…'`; Python `shlex.quote` is conditional.
-  - (a) Port Python's conditional quoting.
-  - (b) Document and accept always-quoting.
-  - **Recommend: (b)** — functionally equivalent on RouterOS; document the diff.
+- [x] **D4 — `shellQuote` always-quotes:** Go wraps every string in `'…'`; Python `shlex.quote` is conditional.
+  - Decision: **(b) Accept always-quoting** — document the diff.
 
-- [ ] **D5 — `TLSSessionInfo` field formats:** Go dates RFC3339 vs Python raw, serial decimal vs hex, subject `CN=` vs `commonName=`.
-  - (a) Match Python exactly.
-  - (b) Accept Go-native formatting.
-  - **Recommend: (b)** — fields are functionally correct; document for clients that may parse them.
+- [x] **D5 — `TLSSessionInfo` field formats:** Go dates RFC3339 vs Python raw, serial decimal vs hex, subject `CN=` vs `commonName=`.
+  - Decision: **(b) Accept Go-native formatting** — document for clients.
 
-- [ ] **D6 — Tool input schemas:** ~40 tools with zero properties; clients can't discover parameters.
-  - (a) Declare full schemas matching Python.
-  - (b) Accept "generic args" model.
-  - **Recommend: (a)** — discoverability is core MCP value.
+- [x] **D6 — Tool input schemas:** ~40 tools with zero properties; clients can't discover parameters.
+  - Decision: **(a) Declare full schemas matching Python** — Phase 1.1.
 
-- [ ] **D7 — Healthcheck formatting:** Python has curated flat table + "Likely issue:" diagnosis; Go renders raw Go map dumps.
-  - (a) Port the Python formatter.
-  - (b) Accept generic key-value dumping.
-  - **Recommend: (a)** — this is the primary diagnostic tool.
+- [x] **D7 — Healthcheck formatting:** Python has curated flat table + "Likely issue:" diagnosis; Go renders raw Go map dumps.
+  - Decision: **(a) Port the Python formatter** — Phase 2.5.
 
-- [ ] **D8 — `resource_print` JSON output:** Go uses compact JSON; Python uses pretty-printed (indent 2).
-  - (a) Match Python.
-  - (b) Accept compact.
-  - **Recommend: (b)** — clients that parse JSON don't care about formatting.
+- [x] **D8 — `resource_print` JSON output:** Go uses compact JSON; Python uses pretty-printed (indent 2).
+  - Decision: **(b) Accept compact** — clients that parse JSON don't care about formatting.
 
-- [ ] **D9 — Exact vs substring wire-sentence assertions:** Go checks `contains()` for pieces; Python checks full byte equality.
-  - Force exact assertions after making attr order deterministic — mandatory, see Phase 4.6.
+- [x] **D9 — Exact vs substring wire-sentence assertions:** Go checks `contains()` for pieces; Python checks full byte equality.
+  - Decision: **(a) Force exact assertions after making attr order deterministic** — Phase 4.6.
 
 ---
 
@@ -70,29 +54,38 @@ These fix production behaviour the current Go suite would never catch.
 
 Change every `reg(name, desc, handler)` to `s.AddTool(mcp.NewTool(name, mcp.WithDescription(desc), <params>), handler)` matching Python's `app.py`.
 
-- [ ] `resource_add`, `resource_set`, `resource_remove`: `menu` (required), `attributes` for add, `item_id` for set/remove
-- [ ] `resource_print`: `menu` (required), `proplist`, `queries`, `attributes`, `jq_filter`
-- [ ] `command_run`: `command` (required), `attributes`, `queries`
-- [ ] `command_cancel`: `tag` (required)
-- [ ] `resource_listen`: `menu` (required), `proplist`, `queries`, `attributes`, `tag`, `max_events`
-- [ ] `dns_resolve`: `name` (required), `server`
-- [ ] `interface_monitor`: `name` (required)
-- [ ] `system_*` tools: `system_resource_get`, `system_identity_get`, `system_clock_get`, `healthcheck`, `dhcp_server_list`, `dhcp_network_list`, `dns_get`, `dns_set` — match Python schemas per-tool
-- [ ] All `*_list` tools (`bridge_list`, `bridge_port_list`, `bridge_vlan_list`, `vlan_list`, `firewall_filter_list`, `firewall_nat_list`, `firewall_address_list_list`, `ppp_active_list`, `ppp_secret_list`, `wireguard_interface_list`, `wireguard_peer_list`): add filter params (`name`, `disabled`, `chain`, `action`, `bridge`, `interface`, `vlan_ids`, `service`, `list_name`, `address`)
-- [ ] All `*_add` tools: `attributes` (required object)
-- [ ] All `*_remove` tools: `item_id` (required)
-- [ ] `firewall_filter_set` / `firewall_nat_set`: `item_id` (required), `attributes` (required)
-- [ ] `firewall_rule_move`: `table` (required), `item_id` (required), `destination` (required)
-- [ ] `ppp_secret_add`: `attributes` (required, handler validates `name`+`password` internally)
-- [ ] `wireguard_interface_add`: `attributes` (required, handler validates `name` internally)
-- [ ] `wireguard_peer_add`: `attributes` (required, handler validates `interface`+`public-key` internally)
-- [ ] `file_list`: `directory`, `name`, `file_type`
-- [ ] `system_backup_save`: `name` (required)
-- [ ] `system_export`: `name` (required), `include_sensitive`, `compact`
-- [ ] `file_download`: `router_path` (required), `local_path`
-- [ ] `system_backup_collect`: `name_prefix`, `include_sensitive`, `compact`, `local_dir`
+- [x] `resource_add`, `resource_set`, `resource_remove`: `menu` (required), `attributes` for add, `item_id` for set/remove
+- [x] `resource_print`: `menu` (required), `proplist`, `queries`, `attributes`, `jq_filter`
+- [x] `command_run`: `command` (required), `attributes`, `queries`
+- [x] `command_cancel`: `tag` (required)
+- [x] `resource_listen`: `menu` (required), `proplist`, `queries`, `attributes`, `tag`, `max_events`
+- [x] `dns_resolve`: `name` (required), `server`
+- [x] `interface_monitor`: `name` (required)
+- [x] `system_*` tools: `system_resource_get`, `system_identity_get`, `system_clock_get`, `healthcheck`, `dhcp_server_list`, `dhcp_network_list`, `dns_get`, `dns_set` — match Python schemas per-tool
+- [x] All `*_list` tools: add filter params per tool
+- [x] All `*_add` tools: `attributes` (required object)
+- [x] All `*_remove` tools: `item_id` (required)
+- [x] `firewall_filter_set` / `firewall_nat_set`: `item_id` (required), `attributes` (required)
+- [x] `firewall_rule_move`: `table` (required), `item_id` (required), `destination` (required)
+- [x] `ppp_secret_add`: `attributes` (required, handler validates `name`+`password` internally)
+- [x] `wireguard_interface_add`: `attributes` (required, handler validates `name` internally)
+- [x] `wireguard_peer_add`: `attributes` (required, handler validates `interface`+`public-key` internally)
+- [x] `file_list`: `directory`, `name`, `file_type`
+- [x] `system_backup_save`: `name` (required)
+- [x] `system_export`: `name` (required), `include_sensitive`, `compact`
+- [x] `file_download`: `router_path` (required), `local_path`
+- [x] `system_backup_collect`: `name_prefix`, `include_sensitive`, `compact`, `local_dir`
 
+> **Phase 1.1 review retro (done):**
+>
+> - [x] **1.1-retro-a — `resource_print`/`resource_listen` `attributes` object not extracted:** Fixed — extract `argObject(req, "attributes")` first, then fall back to stripping control keys.
+>
+> - [x] **1.1-retro-b — `dns_set` sends `servers` as a slice:** Fixed — strip whitespace, reject all-empty servers, and join with `,`.
+>
+> - [x] **1.1-retro-c — Required `item_id`/`tag` strings not validated:** Fixed — validate with `helpers.NormalizeRequiredString(...)` in all remove/set/cancel handlers.
+ 
 > **Why here:** Without schemas, production clients cannot discover or properly call ~40 of 60 tools. Empty-schema handlers receive no args → `RequireAttributes` returns error → tool always fails. This is a runtime correctness issue, not just a coverage gap.
+
 
 ---
 
@@ -102,7 +95,7 @@ Change every `reg(name, desc, handler)` to `s.AddTool(mcp.NewTool(name, mcp.With
 
 The core handlers pass the *entire* `req.Params.Arguments` map as RouterOS attributes. Control keys (`menu`, `item_id`, `jq_filter`, `command`, `queries`, `tag`, `max_events`) end up on the wire as `=menu=…`, `=item_id=…` etc. Real routers would trap on unknown parameters.
 
-- [ ] Add `argObject(req, key)` helper in `tool_core.go`:
+- [x] Add `argObject(req, key)` helper in `tool_core.go`:
   ```go
   func argObject(req mcp.CallToolRequest, key string) map[string]any {
       v, ok := req.Params.Arguments[key]
@@ -112,19 +105,24 @@ The core handlers pass the *entire* `req.Params.Arguments` map as RouterOS attri
       return m
   }
   ```
-- [ ] Fix `handlerResourceAdd` and `handlerResourceSet` — extract `attributes` sub-map from args, not whole args
-- [ ] Fix `handlerResourcePrint` — strip `menu`, `proplist`, `queries`, `jq_filter` before passing attrs (or add explicit `attributes` object param)
-- [ ] Fix `handlerCommandRun` — strip `command`, `queries` from attrs
-- [ ] Fix `handlerResourceListen` — strip `menu`, `proplist`, `queries`, `tag`, `max_events` from attrs
-- [ ] Fix generic `addHandler`/`setHandler` (tool_layer2, tool_security, tool_access) — extract only `attributes` sub-map after Phase 1.1 declares it
+- [x] Fix `handlerResourceAdd` and `handlerResourceSet` — extract `attributes` sub-map from args, not whole args
+- [x] Fix `handlerResourcePrint` — strip `menu`, `proplist`, `queries`, `jq_filter` before passing attrs (or add explicit `attributes` object param)
+- [x] Fix `handlerCommandRun` — strip `command`, `queries` from attrs
+- [x] Fix `handlerResourceListen` — strip `menu`, `proplist`, `queries`, `tag`, `max_events` from attrs
+- [x] Fix generic `addHandler`/`setHandler` (tool_layer2, tool_security, tool_access) — extract only `attributes` sub-map after Phase 1.1 declares it
 
+> **Phase 1.2 review retro (done):**
+> >
+> > - [x] **1.2-retro — `resource_print` and `resource_listen` still pollute RouterOS attributes:** Fixed — extract `argObject(req, "attributes")` first, then fall back to stripping control keys.
+ 
 ---
-
+ 
 ### 1.3 — Implement Custom CA Certificate Loading
+
 
 **File:** `internal/client/client.go` line 321.
 
-- [ ] Replace `// TODO: load CA certs from x509.CertPool` with production code:
+- [x] Replace `// TODO: load CA certs from x509.CertPool` with production code:
   ```go
   if c.tlsVerify && len(c.tlsCAFiles) > 0 {
       certPool := x509.NewCertPool()
@@ -152,7 +150,7 @@ The core handlers pass the *entire* `req.Params.Arguments` map as RouterOS attri
 
 Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`normalizeTag`/`normalizeQueries` (client.go:706–758) and `loadPrivateKey` (downloads.go:149–163) **panic** on bad input.
 
-- [ ] Add a `recoverHandler` wrapper:
+- [x] Add a `recoverHandler` wrapper:
   ```go
   func recoverHandler(h server.ToolHandlerFunc) server.ToolHandlerFunc {
       return func(ctx context.Context, req mcp.CallToolRequest) (result *mcp.CallToolResult, err error) {
@@ -165,7 +163,7 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
       }
   }
   ```
-- [ ] Wrap every handler registration through `recoverHandler` (if D2 = (b), use as safety net during longer refactor)
+- [x] Wrap every handler registration through `recoverHandler` (if D2 = (b), use as safety net during longer refactor)
 
 ---
 
@@ -173,7 +171,7 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
 
 **File:** `internal/server/tool_core.go` line 323.
 
-- [ ] Replace dead condition `if packetSize > 0 && packetSize < 1` with:
+- [x] Replace dead condition `if packetSize > 0 && packetSize < 1` with:
   ```go
   if _, ok := req.Params.Arguments["packet_size"]; ok && packetSize < 1 {
       return nil, fmt.Errorf("packet_size must be at least 1")
@@ -187,7 +185,7 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
 
 **File:** `internal/downloads/downloads.go` lines 412–425.
 
-- [ ] Change signature to return `(string, error)` — error if `MIKROTIK_SCP_PRIVATE_KEY` is set but file doesn't exist:
+- [x] Change signature to return `(string, error)` — error if `MIKROTIK_SCP_PRIVATE_KEY` is set but file doesn't exist:
   ```go
   func ResolveSCPPrivateKeyPath() (string, error) {
       configured := os.Getenv("MIKROTIK_SCP_PRIVATE_KEY")
@@ -202,12 +200,17 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
       return path, nil
   }
   ```
-- [ ] Update callers (`LoadFileTransferSettings`, `LoadPasswordRotationSettings`)
-- [ ] Update package-level vars `hcResolveSCPPrivateKeyPath` (tool_core.go) and `ftResolveSCPPrivateKeyPath` (tool_files.go)
+- [x] Update callers (`LoadFileTransferSettings`, `LoadPasswordRotationSettings`)
+- [x] Update package-level vars `hcResolveSCPPrivateKeyPath` (tool_core.go) and `ftResolveSCPPrivateKeyPath` (tool_files.go)
 
+> **Phase 1.6 review retro (done):**
+>
+> - [x] **1.6-retro — `ResolveSCPPrivateKeyPath` file check is incomplete:** Fixed — reject all stat errors, require regular file.
+ 
 ---
-
+ 
 ## Phase 2: Core Test Suite Porting *(~8–12 days — test-only changes)*
+
 
 ### 2.0 — Test Infrastructure Improvements *(pre-requisite)*
 
@@ -439,9 +442,16 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
 - [ ] **3.4x** — `TestIntegrationIPAddressGetRequiresExactlyOneLocator`
 - [ ] **3.4y** — `TestIntegrationInterfaceMonitorRequiresName`
 
+> **Phase 1 review notes for Phase 3.4 (non-blocking):**
+>
+> - [x] **3.4-retro-a — `resource_print` jq output must be JSON:** `handlerResourcePrint` currently returns `fmt.Sprintf("%v", filtered)` for `jq_filter`; change to `helpers.JSONCompact(filtered)` so 3.4a can assert exact JSON shape. File: `internal/server/tool_core.go:307`.
+>
+> - [x] **3.4-retro-b — `handlerDNSSet` now trims whitespace on `cache_size`:** Fixed.
+ 
 ---
-
+ 
 ## Phase 4: Robustness, Hygiene & Go-Specific Dimensions *(~5–7 days)*
+
 
 ### 4.1 — Concurrency Safety
 
@@ -490,6 +500,10 @@ Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent —
 - [ ] **4.5f** — Delete `TestGenerateAPIPasswordIsRandom` (near-zero information)
 - [ ] **4.5g** — Deduplicate `clearMikrotikEnv`/`clearMikrotikOnly` across 3 test files → `internal/testutil/env.go`
 - [ ] **4.5h** — Run `gofumpt -s .` or `gofmt -s -w .` on the whole tree
+
+> **Phase 1 review note for Phase 4.5 (non-blocking):**
+>
+> - [ ] **4.5-retro — Revert unnecessary `go.mod` / `go.sum` bumps:** The change from `go 1.23.0` to `go 1.25.0` and the `golang.org/x/crypto`/`sys` bumps are not required by any Phase 1 fix. Revert them unless there is a concrete dependency requirement, to avoid raising the minimum Go toolchain unnecessarily.
 
 ### 4.6 — Deterministic Attr Word Order
 

@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -318,7 +320,21 @@ func (c *RouterOSClient) Connect() error {
 			ServerName:         c.host,
 			InsecureSkipVerify: !c.tlsVerify,
 		}
-		// TODO: load CA certs from x509.CertPool when tlsCAFiles is set
+		if c.tlsVerify && len(c.tlsCAFiles) > 0 {
+			certPool := x509.NewCertPool()
+			for _, f := range c.tlsCAFiles {
+				pem, err := os.ReadFile(f)
+				if err != nil {
+					rawConn.Close()
+					return fmt.Errorf("%w: failed to read CA cert %s: %v", ErrRouterOSTransportError, f, err)
+				}
+				if !certPool.AppendCertsFromPEM(pem) {
+					rawConn.Close()
+					return fmt.Errorf("%w: no valid CA cert found in %s", ErrRouterOSTransportError, f)
+				}
+			}
+			tlsConfig.RootCAs = certPool
+		}
 
 		tlsConn := tls.Client(rawConn, tlsConfig)
 		if err := tlsConn.Handshake(); err != nil {

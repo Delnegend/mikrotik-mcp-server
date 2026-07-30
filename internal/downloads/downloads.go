@@ -180,7 +180,10 @@ func LoadFileTransferSettings(apiHost string) (*FileTransferSettings, error) {
 		username = os.Getenv("MIKROTIK_USER")
 	}
 
-	privateKey := ResolveSCPPrivateKeyPath()
+	privateKey, err := ResolveSCPPrivateKeyPath()
+	if err != nil {
+		return nil, err
+	}
 
 	var password string
 	if privateKey == "" {
@@ -409,19 +412,23 @@ func ProbeSSHFingerprint(host string, port int, timeout time.Duration) (map[stri
 	}, nil
 }
 
-func ResolveSCPPrivateKeyPath() string {
+func ResolveSCPPrivateKeyPath() (string, error) {
 	configured := os.Getenv("MIKROTIK_SCP_PRIVATE_KEY")
 	if configured == "" {
-		return ""
+		return "", nil
 	}
 	path := configured
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(helpers.WorkspaceRoot(), path)
 	}
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return "" // will be handled by caller
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("SCP private key file '%s' is inaccessible: %v", path, err)
 	}
-	return path
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("SCP private key path '%s' is not a regular file", path)
+	}
+	return path, nil
 }
 
 func NormalizeSSHFingerprint(value string) (string, error) {

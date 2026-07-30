@@ -3,6 +3,7 @@ package downloads
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -121,7 +122,10 @@ func TestResolveSCPPrivateKeyPath(t *testing.T) {
 	clearMikrotikEnv()
 	os.Setenv("MIKROTIK_SCP_PRIVATE_KEY", keyPath)
 
-	result := ResolveSCPPrivateKeyPath()
+	result, err := ResolveSCPPrivateKeyPath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if result != keyPath {
 		t.Errorf("result = %q, want %q", result, keyPath)
 	}
@@ -146,15 +150,21 @@ func TestResolveSCPPrivateKeyPathMissing(t *testing.T) {
 	clearMikrotikEnv()
 	os.Setenv("MIKROTIK_SCP_PRIVATE_KEY", "/nonexistent/path/key")
 
-	result := ResolveSCPPrivateKeyPath()
-	if result != "" {
-		t.Errorf("expected empty for missing key, got %q", result)
+	_, err := ResolveSCPPrivateKeyPath()
+	if err == nil {
+		t.Fatal("expected error for missing key, got nil")
+	}
+	if !strings.Contains(err.Error(), "is inaccessible") {
+		t.Errorf("expected 'is inaccessible' error, got: %v", err)
 	}
 }
 
 func TestResolveSCPPrivateKeyPathUnset(t *testing.T) {
 	clearMikrotikEnv()
-	result := ResolveSCPPrivateKeyPath()
+	result, err := ResolveSCPPrivateKeyPath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if result != "" {
 		t.Errorf("expected empty when unset, got %q", result)
 	}

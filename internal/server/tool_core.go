@@ -34,7 +34,7 @@ var (
 )
 
 func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
-	s.AddTool(mcp.NewTool("resource_print",
+	addTool(s, mcp.NewTool("resource_print",
 		mcp.WithDescription("Run a generic RouterOS print command and optionally apply jq to the normalized array response. Use slash-separated paths, e.g. \"interface/list\" or \"ip/firewall/nat\"."),
 		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
 		mcp.WithArray("proplist", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Optional property list")),
@@ -43,20 +43,49 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("jq_filter", mcp.Description("Optional jq filter expression")),
 	), handlerResourcePrint(cl))
 
-	// Simple register helper for tools with just a description
-	reg := func(name, desc string, handler server.ToolHandlerFunc) {
-		s.AddTool(mcp.NewTool(name, mcp.WithDescription(desc)), handler)
-	}
+	addTool(s, mcp.NewTool("resource_add",
+		mcp.WithDescription("Run a generic RouterOS add command for a menu path. Use slash-separated paths, e.g. \"interface/bridge/port\" or \"ip/firewall/nat\"."),
+		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
+		mcp.WithObject("attributes", mcp.Description("Optional RouterOS attributes")),
+	), handlerResourceAdd(cl))
 
-	reg("resource_add", "Run a generic RouterOS add command for a menu path. Use slash-separated paths, e.g. \"interface/bridge/port\" or \"ip/firewall/nat\".", handlerResourceAdd(cl))
-	reg("resource_set", "Run a generic RouterOS set command for a menu path and item id. Use slash-separated paths, e.g. \"ip/firewall/nat\" or \"interface/bridge/port\".", handlerResourceSet(cl))
-	reg("resource_remove", "Run a generic RouterOS remove command for a menu path and item id. Use slash-separated paths, e.g. \"ip/firewall/nat\" or \"interface/bridge/port\".", handlerResourceRemove(cl))
-	reg("command_run", "Run a generic RouterOS command path and return normalized output. Use slash-separated paths, e.g. \"/tool/ping\" or \"/system/backup/save\".", handlerCommandRun(cl))
-	reg("resource_listen", "Listen for changes on a RouterOS menu and return a bounded batch of events. Use slash-separated paths, e.g. \"interface\" or \"ip/firewall/nat\".", handlerResourceListen(cl))
-	reg("command_cancel", "Cancel a tagged long-running RouterOS API command.", handlerCommandCancel(cl))
+	addTool(s, mcp.NewTool("resource_set",
+		mcp.WithDescription("Run a generic RouterOS set command for a menu path and item id. Use slash-separated paths, e.g. \"ip/firewall/nat\" or \"interface/bridge/port\"."),
+		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
+		mcp.WithObject("attributes", mcp.Description("Optional RouterOS attributes")),
+	), handlerResourceSet(cl))
+
+	addTool(s, mcp.NewTool("resource_remove",
+		mcp.WithDescription("Run a generic RouterOS remove command for a menu path and item id. Use slash-separated paths, e.g. \"ip/firewall/nat\" or \"interface/bridge/port\"."),
+		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
+		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
+	), handlerResourceRemove(cl))
+
+	addTool(s, mcp.NewTool("command_run",
+		mcp.WithDescription("Run a generic RouterOS command path and return normalized output. Use slash-separated paths, e.g. \"/tool/ping\" or \"/system/backup/save\"."),
+		mcp.WithString("command", mcp.Required(), mcp.Description("RouterOS command path")),
+		mcp.WithObject("attributes", mcp.Description("Optional command attributes")),
+		mcp.WithArray("queries", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Optional query filters")),
+	), handlerCommandRun(cl))
+
+	addTool(s, mcp.NewTool("resource_listen",
+		mcp.WithDescription("Listen for changes on a RouterOS menu and return a bounded batch of events. Use slash-separated paths, e.g. \"interface\" or \"ip/firewall/nat\"."),
+		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. interface, ip/firewall/nat)")),
+		mcp.WithArray("proplist", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Optional property list")),
+		mcp.WithArray("queries", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Optional query filters")),
+		mcp.WithObject("attributes", mcp.Description("Optional listen attributes")),
+		mcp.WithString("tag", mcp.Description("Optional tag for the listen session")),
+		mcp.WithNumber("max_events", mcp.Description("Maximum number of events to collect (default 10)")),
+	), handlerResourceListen(cl))
+
+	addTool(s, mcp.NewTool("command_cancel",
+		mcp.WithDescription("Cancel a tagged long-running RouterOS API command."),
+		mcp.WithString("tag", mcp.Required(), mcp.Description("Tag of the command to cancel")),
+	), handlerCommandCancel(cl))
 
 	// Ping and traceroute have parameters
-	s.AddTool(mcp.NewTool("tool_ping",
+	addTool(s, mcp.NewTool("tool_ping",
 		mcp.WithDescription("Run a bounded ping from the router and return per-probe results."),
 		mcp.WithString("address", mcp.Required(), mcp.Description("Target address")),
 		mcp.WithNumber("count", mcp.Description("Number of pings (default 4)")),
@@ -65,7 +94,7 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithNumber("packet_size", mcp.Description("Packet size")),
 	), handlerToolPing(cl))
 
-	s.AddTool(mcp.NewTool("tool_traceroute",
+	addTool(s, mcp.NewTool("tool_traceroute",
 		mcp.WithDescription("Run a bounded traceroute from the router and return hop results."),
 		mcp.WithString("address", mcp.Required(), mcp.Description("Target address")),
 		mcp.WithNumber("count", mcp.Description("Probes per hop (default 3)")),
@@ -75,61 +104,89 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithNumber("packet_size", mcp.Description("Packet size")),
 	), handlerToolTraceroute(cl))
 
-	reg("dns_resolve", "Resolve a DNS name from the router, optionally using a specific DNS server.", handlerDNSResolve(cl))
-	reg("interface_monitor", "Run a one-shot interface traffic monitor and return current counters and rates.", handlerInterfaceMonitor(cl))
-	reg("system_resource_get", "Get RouterOS system resource details.", handlerSystemResourceGet(cl))
-	reg("system_identity_get", "Get the RouterOS system identity.", handlerSystemIdentityGet(cl))
-	reg("system_clock_get", "Get the RouterOS system clock settings.", handlerSystemClockGet(cl))
-	reg("healthcheck", "Check whether the MCP can fetch RouterOS API data and connect to SCP.", handlerHealthcheck(cl))
+	addTool(s, mcp.NewTool("dns_resolve",
+		mcp.WithDescription("Resolve a DNS name from the router, optionally using a specific DNS server."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("DNS name to resolve")),
+		mcp.WithString("server", mcp.Description("Optional DNS server to use")),
+	), handlerDNSResolve(cl))
 
-	s.AddTool(mcp.NewTool("interface_list",
+	addTool(s, mcp.NewTool("interface_monitor",
+		mcp.WithDescription("Run a one-shot interface traffic monitor and return current counters and rates."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Interface name")),
+	), handlerInterfaceMonitor(cl))
+
+	addTool(s, mcp.NewTool("system_resource_get",
+		mcp.WithDescription("Get RouterOS system resource details."),
+	), handlerSystemResourceGet(cl))
+
+	addTool(s, mcp.NewTool("system_identity_get",
+		mcp.WithDescription("Get the RouterOS system identity."),
+	), handlerSystemIdentityGet(cl))
+
+	addTool(s, mcp.NewTool("system_clock_get",
+		mcp.WithDescription("Get the RouterOS system clock settings."),
+	), handlerSystemClockGet(cl))
+
+	addTool(s, mcp.NewTool("healthcheck",
+		mcp.WithDescription("Check whether the MCP can fetch RouterOS API data and connect to SCP."),
+	), handlerHealthcheck(cl))
+
+	addTool(s, mcp.NewTool("interface_list",
 		mcp.WithDescription("List network interfaces with optional status filters."),
 		mcp.WithBoolean("running_only", mcp.Description("Only return running interfaces")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
 	), handlerInterfaceList(cl))
 
-	s.AddTool(mcp.NewTool("interface_get",
+	addTool(s, mcp.NewTool("interface_get",
 		mcp.WithDescription("Get one interface by name or RouterOS item id."),
 		mcp.WithString("name", mcp.Description("Interface name")),
 		mcp.WithString("item_id", mcp.Description("RouterOS item id")),
 	), handlerInterfaceGet(cl))
 
-	s.AddTool(mcp.NewTool("ip_address_list",
+	addTool(s, mcp.NewTool("ip_address_list",
 		mcp.WithDescription("List IP addresses with optional interface and disabled filters."),
 		mcp.WithString("interface", mcp.Description("Filter by interface")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
 	), handlerIPAddressList(cl))
 
-	s.AddTool(mcp.NewTool("ip_address_get",
+	addTool(s, mcp.NewTool("ip_address_get",
 		mcp.WithDescription("Get one IP address by address or RouterOS item id."),
 		mcp.WithString("address", mcp.Description("IP address")),
 		mcp.WithString("item_id", mcp.Description("RouterOS item id")),
 	), handlerIPAddressGet(cl))
 
-	s.AddTool(mcp.NewTool("ip_route_list",
+	addTool(s, mcp.NewTool("ip_route_list",
 		mcp.WithDescription("List IP routes with optional destination and disabled filters."),
 		mcp.WithString("dst_address", mcp.Description("Filter by destination address")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
 	), handlerIPRouteList(cl))
 
-	s.AddTool(mcp.NewTool("ip_route_get",
+	addTool(s, mcp.NewTool("ip_route_get",
 		mcp.WithDescription("Get one IP route by destination or RouterOS item id."),
 		mcp.WithString("dst_address", mcp.Description("Destination address")),
 		mcp.WithString("item_id", mcp.Description("RouterOS item id")),
 	), handlerIPRouteGet(cl))
 
-	s.AddTool(mcp.NewTool("dhcp_lease_list",
+	addTool(s, mcp.NewTool("dhcp_lease_list",
 		mcp.WithDescription("List DHCP leases with optional address, MAC, and active filters."),
 		mcp.WithString("address", mcp.Description("Filter by address")),
 		mcp.WithString("mac_address", mcp.Description("Filter by MAC address")),
 		mcp.WithBoolean("active_only", mcp.Description("Only return active (bound) leases")),
 	), handlerDHCPLeaseList(cl))
 
-	reg("dhcp_server_list", "List configured DHCP servers.", handlerDHCPServerList(cl))
-	reg("dhcp_network_list", "List configured DHCP networks.", handlerDHCPNetworkList(cl))
-	reg("dns_get", "Get RouterOS DNS settings.", handlerDNSGet(cl))
+	addTool(s, mcp.NewTool("dhcp_server_list",
+		mcp.WithDescription("List configured DHCP servers."),
+	), handlerDHCPServerList(cl))
 
-	s.AddTool(mcp.NewTool("dns_set",
+	addTool(s, mcp.NewTool("dhcp_network_list",
+		mcp.WithDescription("List configured DHCP networks."),
+	), handlerDHCPNetworkList(cl))
+
+	addTool(s, mcp.NewTool("dns_get",
+		mcp.WithDescription("Get RouterOS DNS settings."),
+	), handlerDNSGet(cl))
+
+	addTool(s, mcp.NewTool("dns_set",
 		mcp.WithDescription("Update RouterOS DNS settings."),
 		mcp.WithArray("servers", mcp.Items(map[string]any{"type": "string"}), mcp.Description("DNS server addresses")),
 		mcp.WithBoolean("allow_remote_requests", mcp.Description("Allow remote DNS requests")),
@@ -181,6 +238,44 @@ func argBoolNullable(req mcp.CallToolRequest, key string) *bool {
 	return &b
 }
 
+func argObject(req mcp.CallToolRequest, key string) map[string]any {
+	v, ok := req.Params.Arguments[key]
+	if !ok {
+		return nil
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return m
+}
+
+func addTool(s *server.MCPServer, tool mcp.Tool, handler server.ToolHandlerFunc) {
+	s.AddTool(tool, recoverHandler(handler))
+}
+
+func recoverHandler(h server.ToolHandlerFunc) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (result *mcp.CallToolResult, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("internal error: %v", r)
+			}
+		}()
+		return h(ctx, req)
+	}
+}
+
+func stripControlKeys(attrs map[string]any, keys ...string) map[string]any {
+	result := make(map[string]any, len(attrs))
+	for k, v := range attrs {
+		result[k] = v
+	}
+	for _, k := range keys {
+		delete(result, k)
+	}
+	return result
+}
+
 // ---- Handler implementations ----
 
 func handlerResourcePrint(cl *client.RouterOSClient) server.ToolHandlerFunc {
@@ -188,7 +283,10 @@ func handlerResourcePrint(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		menu := argString(req, "menu", "")
 		proplist := argStringSlice(req, "proplist")
 		queries := argStringSlice(req, "queries")
-		attrs := req.Params.Arguments
+		attrs := argObject(req, "attributes")
+		if attrs == nil {
+			attrs = stripControlKeys(req.Params.Arguments, "menu", "proplist", "queries", "jq_filter")
+		}
 		jqFilter := argString(req, "jq_filter", "")
 
 		items, err := helpers.PrintRecords(cl, menu, proplist, queries, attrs)
@@ -209,7 +307,7 @@ func handlerResourcePrint(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			if err != nil {
 				return nil, err
 			}
-			return mcp.NewToolResultText(fmt.Sprintf("%v", filtered)), nil
+			return mcp.NewToolResultText(helpers.JSONCompact(filtered)), nil
 		}
 
 		return mcp.NewToolResultText(helpers.JSONCompact(items)), nil
@@ -219,7 +317,10 @@ func handlerResourcePrint(cl *client.RouterOSClient) server.ToolHandlerFunc {
 func handlerResourceAdd(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		menu := argString(req, "menu", "")
-		attrs := req.Params.Arguments
+		attrs := argObject(req, "attributes")
+		if attrs == nil {
+			attrs = stripControlKeys(req.Params.Arguments, "menu")
+		}
 		result, err := cl.Add(menu, attrs)
 		if err != nil {
 			return nil, err
@@ -231,8 +332,14 @@ func handlerResourceAdd(cl *client.RouterOSClient) server.ToolHandlerFunc {
 func handlerResourceSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		menu := argString(req, "menu", "")
-		itemID := argString(req, "item_id", "")
-		attrs := req.Params.Arguments
+		itemID, err := helpers.NormalizeRequiredString(argString(req, "item_id", ""), "item_id")
+		if err != nil {
+			return nil, err
+		}
+		attrs := argObject(req, "attributes")
+		if attrs == nil {
+			attrs = stripControlKeys(req.Params.Arguments, "menu", "item_id")
+		}
 		result, err := cl.Set(menu, itemID, attrs)
 		if err != nil {
 			return nil, err
@@ -244,7 +351,10 @@ func handlerResourceSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 func handlerResourceRemove(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		menu := argString(req, "menu", "")
-		itemID := argString(req, "item_id", "")
+		itemID, err := helpers.NormalizeRequiredString(argString(req, "item_id", ""), "item_id")
+		if err != nil {
+			return nil, err
+		}
 		result, err := cl.Remove(menu, itemID)
 		if err != nil {
 			return nil, err
@@ -257,7 +367,11 @@ func handlerCommandRun(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		command := argString(req, "command", "")
 		queries := argStringSlice(req, "queries")
-		result, err := cl.Run(command, req.Params.Arguments, queries, "")
+		attrs := argObject(req, "attributes")
+		if attrs == nil {
+			attrs = stripControlKeys(req.Params.Arguments, "command", "queries")
+		}
+		result, err := cl.Run(command, attrs, queries, "")
 		if err != nil {
 			return nil, err
 		}
@@ -270,7 +384,10 @@ func handlerResourceListen(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		menu := argString(req, "menu", "")
 		proplist := argStringSlice(req, "proplist")
 		queries := argStringSlice(req, "queries")
-		attrs := req.Params.Arguments
+		attrs := argObject(req, "attributes")
+		if attrs == nil {
+			attrs = stripControlKeys(req.Params.Arguments, "menu", "proplist", "queries", "tag", "max_events")
+		}
 		tag := argString(req, "tag", "")
 		maxEvents := int(argFloat(req, "max_events", 10))
 		if maxEvents < 1 {
@@ -294,7 +411,10 @@ func handlerResourceListen(cl *client.RouterOSClient) server.ToolHandlerFunc {
 
 func handlerCommandCancel(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		tag := argString(req, "tag", "")
+		tag, err := helpers.NormalizeRequiredString(argString(req, "tag", ""), "tag")
+		if err != nil {
+			return nil, err
+		}
 		result, err := cl.Cancel(tag)
 		if err != nil {
 			return nil, err
@@ -320,7 +440,7 @@ func handlerToolPing(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		if interval != "" && strings.TrimSpace(interval) == "" {
 			return nil, fmt.Errorf("interval is required")
 		}
-		if packetSize > 0 && packetSize < 1 {
+		if _, ok := req.Params.Arguments["packet_size"]; ok && packetSize < 1 {
 			return nil, fmt.Errorf("packet_size must be at least 1")
 		}
 
@@ -592,7 +712,9 @@ func handlerHealthcheck(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			"resolved_scp_host":         os.Getenv("MIKROTIK_SCP_HOST"),
 			"scp_credentials_configured": os.Getenv("MIKROTIK_SCP_USER") != "" || os.Getenv("MIKROTIK_USER") != "",
 		}
-		if scpKey := hcResolveSCPPrivateKeyPath(); scpKey != "" {
+		if scpKey, keyErr := hcResolveSCPPrivateKeyPath(); keyErr != nil {
+			config["scp_key_path_error"] = keyErr.Error()
+		} else if scpKey != "" {
 			config["scp_key_path"] = scpKey
 			config["scp_auth_mode"] = "key"
 		} else if os.Getenv("MIKROTIK_SCP_PASSWORD") != "" || os.Getenv("MIKROTIK_PASSWORD") != "" {
@@ -1140,11 +1262,22 @@ func handlerDNSSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 
 		attrs := map[string]any{}
 		if len(servers) > 0 {
-			attrs["servers"] = servers
+			var cleaned []string
+			for _, s := range servers {
+				s = strings.TrimSpace(s)
+				if s != "" {
+					cleaned = append(cleaned, s)
+				}
+			}
+			if len(cleaned) == 0 {
+				return mcp.NewToolResultError("At least one DNS server must be provided"), nil
+			}
+			attrs["servers"] = strings.Join(cleaned, ",")
 		}
 		if allowRemote != nil {
 			attrs["allow-remote-requests"] = *allowRemote
 		}
+		cacheSize = strings.TrimSpace(cacheSize)
 		if cacheSize != "" {
 			attrs["cache-size"] = cacheSize
 		}
