@@ -3,10 +3,10 @@ package client
 import (
 	"bytes"
 	"errors"
-	"net"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/pheoxy/mikrotik-mcp/internal/testutil"
 )
 
 func TestEncodeLengthRouterOSPrefixes(t *testing.T) {
@@ -461,6 +461,9 @@ func TestRunSupportsExplicitTag(t *testing.T) {
 func TestExecuteOpensConnectionLazily(t *testing.T) {
 	client := NewRouterOSClient("router.test", "admin", "secret")
 	fake := newFakeConn()
+	// conn is nil; execute should call Open() which dials.
+	// Unit test can't mock Open() without network, so verify that
+	// setting conn beforehand avoids the Open() call.
 	fake.WriteResponse(encodeSentence([]string{"!done", "=ret=ok"}))
 	client.conn = fake
 
@@ -471,6 +474,10 @@ func TestExecuteOpensConnectionLazily(t *testing.T) {
 	sent := string(fake.Sent())
 	if !strings.Contains(sent, "/system/identity/print") {
 		t.Errorf("expected print sentence, got: %q", sent)
+	}
+	// No login sentence should appear — Open() was skipped because conn was set
+	if strings.Contains(sent, "/login") {
+		t.Errorf("unexpected login sentence; Open() should not be called when conn is set: %q", sent)
 	}
 }
 
@@ -513,20 +520,21 @@ func TestListenUsesRouterOSDotTagWord(t *testing.T) {
 	}
 }
 
-func TestListenCancelsAfterTimeout(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret",
-		WithTimeout(10*time.Millisecond))
+func TestListenReturnsErrorOnEmptyStream(t *testing.T) {
+	client := NewRouterOSClient("router.test", "admin", "secret")
 	fake := newFakeConn()
-	// Don't write any response — Read will block until timeout
+	// No response data — Read returns io.EOF immediately
 	client.conn = fake
 
 	_, err := client.Listen("/interface", nil, nil, nil, "listen-1", 10)
 	if err == nil {
-		t.Fatal("expected timeout error")
+		t.Fatal("expected error for empty stream")
 	}
-	// Should either be a transport error wrapping a timeout
-	// or the listener should have sent a cancel and returned
-	t.Logf("got error (expected): %v", err)
+	// Should not hang — returns promptly with an error
+	sent := string(fake.Sent())
+	if !strings.Contains(sent, "/interface/listen") {
+		t.Errorf("expected listen sentence, got: %q", sent)
+	}
 }
 
 func TestTLSSessionInfoReturnsNilForPlainSocket(t *testing.T) {
@@ -739,46 +747,11 @@ func TestLoginTrapRaisesCredentialError_Strengthened(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// fakeConn: net.Conn for testing RouterOSClient
+// fakeConn wraps testutil.FakeConn for backward compatibility
 // ---------------------------------------------------------------------------
 
-type fakeConn struct {
-	buf    bytes.Buffer
-	sent   bytes.Buffer
-	closed bool
+func newFakeConn() *testutil.FakeConn {
+	return testutil.NewFakeConn()
 }
-
-var _ net.Conn = (*fakeConn)(nil)
-
-func newFakeConn() *fakeConn {
-	return &fakeConn{}
-}
-
-func (f *fakeConn) WriteResponse(data []byte) {
-	f.buf.Write(data)
-}
-
-func (f *fakeConn) Read(b []byte) (int, error) {
-	return f.buf.Read(b)
-}
-
-func (f *fakeConn) Write(b []byte) (int, error) {
-	return f.sent.Write(b)
-}
-
-func (f *fakeConn) Sent() []byte {
-	return f.sent.Bytes()
-}
-
-func (f *fakeConn) Close() error {
-	f.closed = true
-	return nil
-}
-
-func (f *fakeConn) LocalAddr() net.Addr  { return nil }
-func (f *fakeConn) RemoteAddr() net.Addr { return nil }
-func (f *fakeConn) SetDeadline(t time.Time) error      { return nil }
-func (f *fakeConn) SetReadDeadline(t time.Time) error  { return nil }
-func (f *fakeConn) SetWriteDeadline(t time.Time) error { return nil }
 
 

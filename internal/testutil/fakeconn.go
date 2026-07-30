@@ -8,9 +8,9 @@ import (
 )
 
 type FakeConn struct {
-	Buf    bytes.Buffer
-	Sent   bytes.Buffer
-	Closed bool
+	Buf     bytes.Buffer
+	SentBuf bytes.Buffer
+	Closed  bool
 }
 
 var _ net.Conn = (*FakeConn)(nil)
@@ -39,11 +39,11 @@ func (f *FakeConn) Read(b []byte) (int, error) {
 }
 
 func (f *FakeConn) Write(b []byte) (int, error) {
-	return f.Sent.Write(b)
+	return f.SentBuf.Write(b)
 }
 
-func (f *FakeConn) SentBytes() []byte {
-	return f.Sent.Bytes()
+func (f *FakeConn) Sent() []byte {
+	return f.SentBuf.Bytes()
 }
 
 func (f *FakeConn) Close() error {

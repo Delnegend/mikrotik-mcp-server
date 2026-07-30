@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pheoxy/mikrotik-mcp/internal/testutil"
 )
 
 func TestLoadTLSCAFilesReturnsSortedActiveFiles(t *testing.T) {
@@ -63,7 +65,7 @@ func TestLoadTLSCAFilesCaseInsensitiveExtension(t *testing.T) {
 }
 
 func TestPasswordlessEnabled(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	if passwordlessEnabled() {
 		t.Error("passwordlessEnabled should be false by default")
 	}
@@ -75,7 +77,7 @@ func TestPasswordlessEnabled(t *testing.T) {
 }
 
 func TestClearEmptyMikrotikEnvVars(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 	os.Setenv("UNRELATED_VAR", "")
@@ -108,7 +110,7 @@ func TestGenerateAPIPassword(t *testing.T) {
 // TestLoadSettingsMapsEnvVars verifies that all env vars are correctly mapped
 // to client settings by LoadSettings.
 func TestLoadSettingsMapsEnvVars(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret123")
 	os.Setenv("MIKROTIK_API_SSL", "true")
@@ -131,7 +133,7 @@ func TestLoadSettingsMapsEnvVars(t *testing.T) {
 }
 
 func TestLoadSettingsDefaults(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 
@@ -148,7 +150,7 @@ func TestLoadSettingsDefaults(t *testing.T) {
 }
 
 func TestLoadSettingsPlainText(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 	os.Setenv("MIKROTIK_API_SSL", "false")
@@ -166,7 +168,7 @@ func TestLoadSettingsPlainText(t *testing.T) {
 }
 
 func TestLoadSettingsCustomPort(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 	os.Setenv("MIKROTIK_API_PORT", "9999")
@@ -181,7 +183,7 @@ func TestLoadSettingsCustomPort(t *testing.T) {
 }
 
 func TestLoadSettingsTLSVerifyDisabled(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 	os.Setenv("MIKROTIK_TLS_VERIFY", "false")
@@ -193,7 +195,7 @@ func TestLoadSettingsTLSVerifyDisabled(t *testing.T) {
 }
 
 func TestLoadSettingsRequiresUser(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	_, err := LoadSettings("router.test")
 	if err == nil {
 		t.Fatal("expected error when MIKROTIK_USER is not set")
@@ -204,7 +206,7 @@ func TestLoadSettingsRequiresUser(t *testing.T) {
 }
 
 func TestLoadSettingsRequiresPassword(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	_, err := LoadSettings("router.test")
 	if err == nil {
@@ -216,7 +218,7 @@ func TestLoadSettingsRequiresPassword(t *testing.T) {
 }
 
 func TestClearEmptyMikrotikEnvVarsSkipsNonMikrotik(t *testing.T) {
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("PATH", "/usr/bin")
 	clearEmptyMikrotikEnvVars()
 	if os.Getenv("PATH") == "" {
@@ -240,7 +242,7 @@ MIKROTIK_TLS_VERIFY=false
 	workspaceRoot = func() string { return dir }
 	defer func() { workspaceRoot = orig }()
 
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 
 	client, err := LoadSettings("192.168.88.1")
 	if err != nil {
@@ -267,7 +269,7 @@ MIKROTIK_PASSWORD=from-dotenv
 	workspaceRoot = func() string { return dir }
 	defer func() { workspaceRoot = orig }()
 
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "from-env")
 	os.Setenv("MIKROTIK_PASSWORD", "from-env")
 
@@ -283,7 +285,7 @@ func TestLoadSettingsDotEnvMissingFileIsFine(t *testing.T) {
 	workspaceRoot = func() string { return dir }
 	defer func() { workspaceRoot = orig }()
 
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 
@@ -308,7 +310,7 @@ MIKROTIK_PASSWORD=secret
 	orig := workspaceRoot
 	workspaceRoot = func() string { return dir }
 	defer func() { workspaceRoot = orig }()
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 
 	client, err := LoadSettings("router.test")
 	if err != nil {
@@ -329,7 +331,7 @@ func TestLoadSettingsPassesDiscoveredTLSCAFiles(t *testing.T) {
 	workspaceRoot = func() string { return dir }
 	defer func() { workspaceRoot = orig }()
 
-	clearMikrotikOnly()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 
@@ -337,8 +339,12 @@ func TestLoadSettingsPassesDiscoveredTLSCAFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSettings error: %v", err)
 	}
-	// Can't directly inspect tlsCAFiles; rely on compile and no-error
-	_ = cl
+	if cl == nil {
+		t.Fatal("LoadSettings returned nil client")
+	}
+	if cl.Host() != "router.test" {
+		t.Errorf("Host() = %q, want router.test", cl.Host())
+	}
 }
 
 func TestGenerateAPIPasswordRejectsZeroLength(t *testing.T) {
@@ -348,16 +354,4 @@ func TestGenerateAPIPasswordRejectsZeroLength(t *testing.T) {
 	}
 }
 
-// clearMikrotikOnly clears only MIKROTIK_* vars via Unsetenv
-func clearMikrotikOnly() {
-	for _, pair := range os.Environ() {
-		eq := strings.IndexByte(pair, '=')
-		if eq < 0 {
-			continue
-		}
-		key := pair[:eq]
-		if strings.HasPrefix(key, "MIKROTIK_") {
-			os.Unsetenv(key)
-		}
-	}
-}
+

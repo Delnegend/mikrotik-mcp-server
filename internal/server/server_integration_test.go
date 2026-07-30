@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"io"
-	"net"
 	"os"
 	"strings"
 	"testing"
@@ -13,41 +11,12 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/pheoxy/mikrotik-mcp/internal/client"
 	"github.com/pheoxy/mikrotik-mcp/internal/downloads"
+	"github.com/pheoxy/mikrotik-mcp/internal/testutil"
 )
 
-type fakeConn struct {
-	response []byte
-	pos      int
-	sent     []byte
-	closed   bool
+func newFakeConn(responses ...[]byte) *testutil.FakeConn {
+	return testutil.NewFakeConn(responses...)
 }
-
-func newFakeConn(responses ...[]byte) *fakeConn {
-	var resp []byte
-	for _, r := range responses {
-		resp = append(resp, r...)
-	}
-	return &fakeConn{response: resp}
-}
-
-func (f *fakeConn) Read(b []byte) (int, error) {
-	if f.pos >= len(f.response) {
-		return 0, io.EOF
-	}
-	n := copy(b, f.response[f.pos:])
-	f.pos += n
-	return n, nil
-}
-func (f *fakeConn) Write(b []byte) (int, error) {
-	f.sent = append(f.sent, b...)
-	return len(b), nil
-}
-func (f *fakeConn) Close() error                  { f.closed = true; return nil }
-func (f *fakeConn) LocalAddr() net.Addr           { return nil }
-func (f *fakeConn) RemoteAddr() net.Addr          { return nil }
-func (f *fakeConn) SetDeadline(t time.Time) error { return nil }
-func (f *fakeConn) SetReadDeadline(t time.Time) error { return nil }
-func (f *fakeConn) SetWriteDeadline(t time.Time) error { return nil }
 
 func enc(words ...string) []byte {
 	var buf []byte
@@ -68,14 +37,13 @@ func encLen(length int) []byte {
 	return []byte{byte(v >> 8), byte(v)}
 }
 
-var _ net.Conn = (*fakeConn)(nil)
 
 func TestIntegrationSystemIdentityGet(t *testing.T) {
 	cl := client.NewRouterOSClient("router.test", "admin", "secret")
 	fc := newFakeConn(enc("!re", "=name=my-router"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerSystemIdentityGet(cl)(context.Background(), mkReq("system_identity_get"))
+	result, err := handlerSystemIdentityGet(cl)(context.Background(), testutil.MkReq("system_identity_get"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -92,7 +60,7 @@ func TestIntegrationSystemResourceGet(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=version=7.17", "=uptime=1d2h", "=board-name=RB5009"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerSystemResourceGet(cl)(context.Background(), mkReq("system_resource_get"))
+	result, err := handlerSystemResourceGet(cl)(context.Background(), testutil.MkReq("system_resource_get"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -113,7 +81,7 @@ func TestIntegrationSystemClockGet(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=date=Jul/25/2026", "=time=10:30:00"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerSystemClockGet(cl)(context.Background(), mkReq("system_clock_get"))
+	result, err := handlerSystemClockGet(cl)(context.Background(), testutil.MkReq("system_clock_get"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -135,7 +103,7 @@ func TestIntegrationInterfaceList(t *testing.T) {
 	)
 	cl.SetConn(fc)
 
-	result, err := handlerInterfaceList(cl)(context.Background(), mkReq("interface_list"))
+	result, err := handlerInterfaceList(cl)(context.Background(), testutil.MkReq("interface_list"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -153,14 +121,14 @@ func TestIntegrationResourceAdd(t *testing.T) {
 	fc := newFakeConn(enc("!done", "=ret=*42"))
 	cl.SetConn(fc)
 
-	result, err := handlerResourceAdd(cl)(context.Background(), mkReq("bridge_add", "menu", "/interface/bridge", "name", "br-test"))
+	result, err := handlerResourceAdd(cl)(context.Background(), testutil.MkReq("bridge_add", "menu", "/interface/bridge", "name", "br-test"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if result.IsError {
 		t.Fatalf("error: %s", result.Content[0].(mcp.TextContent).Text)
 	}
-	if !strings.Contains(string(fc.sent), "/interface/bridge/add") {
+	if !strings.Contains(string(fc.Sent()), "/interface/bridge/add") {
 		t.Errorf("missing add path")
 	}
 }
@@ -170,17 +138,17 @@ func TestIntegrationResourceSet(t *testing.T) {
 	fc := newFakeConn(enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerResourceSet(cl)(context.Background(), mkReq("resource_set", "menu", "/ip/address", "item_id", "*4", "disabled", true))
+	result, err := handlerResourceSet(cl)(context.Background(), testutil.MkReq("resource_set", "menu", "/ip/address", "item_id", "*4", "disabled", true))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if result.IsError {
 		t.Fatalf("error: %s", result.Content[0].(mcp.TextContent).Text)
 	}
-	if !strings.Contains(string(fc.sent), "/ip/address/set") {
+	if !strings.Contains(string(fc.Sent()), "/ip/address/set") {
 		t.Errorf("missing set path")
 	}
-	if !strings.Contains(string(fc.sent), "=.id=*4") {
+	if !strings.Contains(string(fc.Sent()), "=.id=*4") {
 		t.Errorf("missing .id")
 	}
 }
@@ -190,14 +158,14 @@ func TestIntegrationResourceRemove(t *testing.T) {
 	fc := newFakeConn(enc("!empty"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerResourceRemove(cl)(context.Background(), mkReq("resource_remove", "menu", "/ip/address", "item_id", "*5"))
+	result, err := handlerResourceRemove(cl)(context.Background(), testutil.MkReq("resource_remove", "menu", "/ip/address", "item_id", "*5"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if result.IsError {
 		t.Fatalf("error: %s", result.Content[0].(mcp.TextContent).Text)
 	}
-	if !strings.Contains(string(fc.sent), "/ip/address/remove") {
+	if !strings.Contains(string(fc.Sent()), "/ip/address/remove") {
 		t.Errorf("missing remove path")
 	}
 }
@@ -207,7 +175,7 @@ func TestIntegrationDNSGet(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=servers=1.1.1.1,8.8.8.8", "=allow-remote-requests=true"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerDNSGet(cl)(context.Background(), mkReq("dns_get"))
+	result, err := handlerDNSGet(cl)(context.Background(), testutil.MkReq("dns_get"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -225,7 +193,7 @@ func TestIntegrationDNSSet(t *testing.T) {
 	fc := newFakeConn(enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerDNSSet(cl)(context.Background(), mkReq("dns_set", "servers", []any{"8.8.8.8", "1.1.1.1"}))
+	result, err := handlerDNSSet(cl)(context.Background(), testutil.MkReq("dns_set", "servers", []any{"8.8.8.8", "1.1.1.1"}))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -242,7 +210,7 @@ func TestIntegrationIPAddressList(t *testing.T) {
 	)
 	cl.SetConn(fc)
 
-	result, err := handlerIPAddressList(cl)(context.Background(), mkReq("ip_address_list"))
+	result, err := handlerIPAddressList(cl)(context.Background(), testutil.MkReq("ip_address_list"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -260,14 +228,14 @@ func TestIntegrationBridgeRemove(t *testing.T) {
 	fc := newFakeConn(enc("!done"))
 	cl.SetConn(fc)
 
-	_, err := removeHandler(cl, "/interface/bridge")(context.Background(), mkReq("bridge_remove", "item_id", "*7"))
+	_, err := removeHandler(cl, "/interface/bridge")(context.Background(), testutil.MkReq("bridge_remove", "item_id", "*7"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	if !strings.Contains(string(fc.sent), "/interface/bridge/remove") {
+	if !strings.Contains(string(fc.Sent()), "/interface/bridge/remove") {
 		t.Errorf("missing remove path")
 	}
-	if !strings.Contains(string(fc.sent), "=.id=*7") {
+	if !strings.Contains(string(fc.Sent()), "=.id=*7") {
 		t.Errorf("missing .id")
 	}
 }
@@ -277,7 +245,7 @@ func TestIntegrationInterfaceGetSuccess(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=.id=*1", "=name=ether1", "=running=true"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerInterfaceGet(cl)(context.Background(), mkReq("interface_get", "name", "ether1"))
+	result, err := handlerInterfaceGet(cl)(context.Background(), testutil.MkReq("interface_get", "name", "ether1"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -291,7 +259,7 @@ func TestIntegrationInterfaceGetSuccess(t *testing.T) {
 
 func TestIntegrationInterfaceGetNoLocator(t *testing.T) {
 	cl := client.NewRouterOSClient("router.test", "admin", "secret")
-	_, err := handlerInterfaceGet(cl)(context.Background(), mkReq("interface_get"))
+	_, err := handlerInterfaceGet(cl)(context.Background(), testutil.MkReq("interface_get"))
 	if err == nil {
 		t.Fatal("expected error for missing locator")
 	}
@@ -305,7 +273,7 @@ func TestIntegrationSystemBackupSave(t *testing.T) {
 	fc := newFakeConn(enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := backupSaveHandler(cl)(context.Background(), mkReq("system_backup_save", "name", "test-backup"))
+	result, err := backupSaveHandler(cl)(context.Background(), testutil.MkReq("system_backup_save", "name", "test-backup"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -322,7 +290,7 @@ func TestIntegrationDHCPLeaseList(t *testing.T) {
 	)
 	cl.SetConn(fc)
 
-	result, err := handlerDHCPLeaseList(cl)(context.Background(), mkReq("dhcp_lease_list"))
+	result, err := handlerDHCPLeaseList(cl)(context.Background(), testutil.MkReq("dhcp_lease_list"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -339,14 +307,14 @@ func TestIntegrationDHCPLeaseListActiveOnly(t *testing.T) {
 	)
 	cl.SetConn(fc)
 
-	result, err := handlerDHCPLeaseList(cl)(context.Background(), mkReq("dhcp_lease_list", "active_only", true))
+	result, err := handlerDHCPLeaseList(cl)(context.Background(), testutil.MkReq("dhcp_lease_list", "active_only", true))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	if result.IsError {
 		t.Fatalf("error: %s", result.Content[0].(mcp.TextContent).Text)
 	}
-	sent := string(fc.sent)
+	sent := string(fc.Sent())
 	if !strings.Contains(sent, "status=bound") {
 		t.Errorf("expected status=bound query, got: %s", sent)
 	}
@@ -357,7 +325,7 @@ func TestIntegrationDNSGetEmptyServers(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=servers="), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerDNSGet(cl)(context.Background(), mkReq("dns_get"))
+	result, err := handlerDNSGet(cl)(context.Background(), testutil.MkReq("dns_get"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -374,7 +342,7 @@ func TestIntegrationResourceAddRequiresMenu(t *testing.T) {
 			t.Fatal("expected panic for missing menu")
 		}
 	}()
-	handlerResourceAdd(cl)(context.Background(), mkReq("resource_add"))
+	handlerResourceAdd(cl)(context.Background(), testutil.MkReq("resource_add"))
 }
 
 func TestIntegrationHealthcheckAllHealthy(t *testing.T) {
@@ -449,7 +417,7 @@ func TestIntegrationHealthcheckAllHealthy(t *testing.T) {
 
 	hcResolveSCPPrivateKeyPath = func() (string, error) { return "", nil }
 
-	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	result, err := handlerHealthcheck(cl)(context.Background(), testutil.MkReq("healthcheck"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -514,7 +482,7 @@ func TestIntegrationPingValidatesInputs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Helper()
 			cl := client.NewRouterOSClient("router.test", "admin", "secret")
-			_, err := handlerToolPing(cl)(context.Background(), mkReq("tool_ping", mapToArgs(tt.args)...))
+			_, err := handlerToolPing(cl)(context.Background(), testutil.MkReq("tool_ping", mapToArgs(tt.args)...))
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -541,7 +509,7 @@ func TestIntegrationTracerouteValidatesInputs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Helper()
 			cl := client.NewRouterOSClient("router.test", "admin", "secret")
-			_, err := handlerToolTraceroute(cl)(context.Background(), mkReq("tool_traceroute", mapToArgs(tt.args)...))
+			_, err := handlerToolTraceroute(cl)(context.Background(), testutil.MkReq("tool_traceroute", mapToArgs(tt.args)...))
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -570,8 +538,8 @@ func TestIntegrationHealthcheckAPIOkSCPFailed(t *testing.T) {
 		hcResolveSCPPrivateKeyPath = origResolve
 	}()
 
-	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
-	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
+	testutil.Setenv(t, "MIKROTIK_USER", "api-user")
+	testutil.Setenv(t, "MIKROTIK_PASSWORD", "api-pass")
 	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
 		return &downloads.FileTransferSettings{Host: "files.test", Port: 21}, nil
 	}
@@ -587,7 +555,7 @@ func TestIntegrationHealthcheckAPIOkSCPFailed(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	result, err := handlerHealthcheck(cl)(context.Background(), testutil.MkReq("healthcheck"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -608,8 +576,8 @@ func TestIntegrationHealthcheckAPIFailed(t *testing.T) {
 		hcResolveSCPPrivateKeyPath = origResolve
 	}()
 
-	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
-	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
+	testutil.Setenv(t, "MIKROTIK_USER", "api-user")
+	testutil.Setenv(t, "MIKROTIK_PASSWORD", "api-pass")
 	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
 		return nil, fmt.Errorf("SCP config missing")
 	}
@@ -623,7 +591,7 @@ func TestIntegrationHealthcheckAPIFailed(t *testing.T) {
 	fc := newFakeConn(enc("!trap", "=message=api unavailable"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	result, err := handlerHealthcheck(cl)(context.Background(), testutil.MkReq("healthcheck"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -643,9 +611,9 @@ func TestIntegrationHealthcheckPasswordlessFingerprintMissing(t *testing.T) {
 		hcLoadFileTransferSettings = origLoad
 	}()
 
-	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
-	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
-	saveAndSetEnv(t, "MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+	testutil.Setenv(t, "MIKROTIK_USER", "api-user")
+	testutil.Setenv(t, "MIKROTIK_PASSWORD", "api-pass")
+	testutil.Setenv(t, "MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
 	hcResolveSCPPrivateKeyPath = func() (string, error) { return "/path/to/key", nil }
 	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
 		return &downloads.FileTransferSettings{Host: host, Port: 22}, nil
@@ -655,13 +623,16 @@ func TestIntegrationHealthcheckPasswordlessFingerprintMissing(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	result, err := handlerHealthcheck(cl)(context.Background(), testutil.MkReq("healthcheck"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	text := result.Content[0].(mcp.TextContent).Text
-	if !strings.Contains(text, "passwordless.fingerprint_missing") && !strings.Contains(text, "fingerprint") {
-		t.Logf("healthcheck output: %s", text)
+	if strings.Contains(text, "Healthcheck: healthy") {
+		t.Errorf("expected non-healthy healthcheck when passwordless enabled but SCP unavailable: %s", text)
+	}
+	if !strings.Contains(text, "passwordless.") {
+		t.Errorf("expected passwordless status in healthcheck output: %s", text)
 	}
 }
 
@@ -675,10 +646,10 @@ func TestIntegrationHealthcheckPasswordlessStartupFailed(t *testing.T) {
 		hcProbeSSHFingerprint = origProbe
 	}()
 
-	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
-	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
-	saveAndSetEnv(t, "MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
-	saveAndSetEnv(t, "MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:test-key")
+	testutil.Setenv(t, "MIKROTIK_USER", "api-user")
+	testutil.Setenv(t, "MIKROTIK_PASSWORD", "api-pass")
+	testutil.Setenv(t, "MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+	testutil.Setenv(t, "MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:test-key")
 	hcResolveSCPPrivateKeyPath = func() (string, error) { return "/path/to/key", nil }
 	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
 		return &downloads.FileTransferSettings{Host: host, Port: 22}, nil
@@ -691,12 +662,17 @@ func TestIntegrationHealthcheckPasswordlessStartupFailed(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	result, err := handlerHealthcheck(cl)(context.Background(), testutil.MkReq("healthcheck"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
 	text := result.Content[0].(mcp.TextContent).Text
-	t.Logf("passwordless startup output: %s", text)
+	if strings.Contains(text, "Healthcheck: healthy") {
+		t.Errorf("expected non-healthy healthcheck, got: %s", text)
+	}
+	if !strings.Contains(text, "passwordless.") {
+		t.Errorf("expected passwordless status in output: %s", text)
+	}
 }
 
 func TestIntegrationHealthcheckSCPConfigMissing(t *testing.T) {
@@ -705,8 +681,8 @@ func TestIntegrationHealthcheckSCPConfigMissing(t *testing.T) {
 		hcLoadFileTransferSettings = origLoad
 	}()
 
-	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
-	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
+	testutil.Setenv(t, "MIKROTIK_USER", "api-user")
+	testutil.Setenv(t, "MIKROTIK_PASSWORD", "api-pass")
 	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
 		return nil, fmt.Errorf("MIKROTIK_SCP_PRIVATE_KEY must be set")
 	}
@@ -715,7 +691,7 @@ func TestIntegrationHealthcheckSCPConfigMissing(t *testing.T) {
 	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	result, err := handlerHealthcheck(cl)(context.Background(), testutil.MkReq("healthcheck"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -737,9 +713,9 @@ func TestIntegrationHealthcheckAPIAuthFailed(t *testing.T) {
 		hcProbeSSHFingerprint = origProbe
 	}()
 
-	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
-	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
-	saveAndSetEnv(t, "MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:test-key")
+	testutil.Setenv(t, "MIKROTIK_USER", "api-user")
+	testutil.Setenv(t, "MIKROTIK_PASSWORD", "api-pass")
+	testutil.Setenv(t, "MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:test-key")
 	hcResolveSCPPrivateKeyPath = func() (string, error) { return "/path/to/key", nil }
 	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
 		return &downloads.FileTransferSettings{Host: host, Port: 22}, nil
@@ -755,7 +731,7 @@ func TestIntegrationHealthcheckAPIAuthFailed(t *testing.T) {
 	fc := newFakeConn(enc("!trap", "=message=invalid user name or password (auth)"), enc("!done"))
 	cl.SetConn(fc)
 
-	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	result, err := handlerHealthcheck(cl)(context.Background(), testutil.MkReq("healthcheck"))
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
@@ -777,7 +753,7 @@ func TestIntegrationSystemIdentityGetNoMatch(t *testing.T) {
 	fc := newFakeConn(enc("!done"))
 	cl.SetConn(fc)
 
-	_, err := handlerSystemIdentityGet(cl)(context.Background(), mkReq("system_identity_get"))
+	_, err := handlerSystemIdentityGet(cl)(context.Background(), testutil.MkReq("system_identity_get"))
 	if err == nil {
 		t.Fatal("expected error for no matching record")
 	}
@@ -795,7 +771,7 @@ func TestIntegrationSystemClockGetMultipleMatches(t *testing.T) {
 	)
 	cl.SetConn(fc)
 
-	_, err := handlerSystemClockGet(cl)(context.Background(), mkReq("system_clock_get"))
+	_, err := handlerSystemClockGet(cl)(context.Background(), testutil.MkReq("system_clock_get"))
 	if err == nil {
 		t.Fatal("expected error for multiple matching records")
 	}
@@ -817,14 +793,6 @@ func mapToArgs(m map[string]any) []any {
 	return args
 }
 
-// saveAndSetEnv saves an env var and sets a new value, returning a func to restore
-func saveAndSetEnv(t *testing.T, key, value string) {
-	t.Helper()
-	orig := os.Getenv(key)
-	os.Setenv(key, value)
-	t.Cleanup(func() { os.Setenv(key, orig) })
-}
-
 // ============================================================
 // File operation tests
 // ============================================================
@@ -843,7 +811,7 @@ func TestIntegrationBackupCollectExportFailure(t *testing.T) {
 	cl.SetConn(fc)
 
 	_, err := backupCollectHandler(cl)(context.Background(),
-		mkReq("system_backup_collect", "name_prefix", "nightly", "include_sensitive", true, "compact", true))
+		testutil.MkReq("system_backup_collect", "name_prefix", "nightly", "include_sensitive", true, "compact", true))
 	if err == nil {
 		t.Fatal("expected export failure error")
 	}
@@ -858,14 +826,14 @@ func TestIntegrationSystemExportWithFlags(t *testing.T) {
 	cl.SetConn(fc)
 
 	result, err := exportHandler(cl)(context.Background(),
-		mkReq("system_export", "name", "config-export", "include_sensitive", true, "compact", true))
+		testutil.MkReq("system_export", "name", "config-export", "include_sensitive", true, "compact", true))
 	if err != nil {
 		t.Fatalf("export error: %v", err)
 	}
 	if result.IsError {
 		t.Errorf("export failed: %s", result.Content[0].(mcp.TextContent).Text)
 	}
-	sent := string(fc.sent)
+	sent := string(fc.Sent())
 	if !strings.Contains(sent, "show-sensitive") {
 		t.Errorf("missing show-sensitive flag: %s", sent)
 	}
@@ -874,21 +842,3 @@ func TestIntegrationSystemExportWithFlags(t *testing.T) {
 	}
 }
 
-// --- Helpers ---
-func mkReq(name string, args ...any) mcp.CallToolRequest {
-	argMap := make(map[string]any)
-	for i := 0; i+1 < len(args); i += 2 {
-		if key, ok := args[i].(string); ok {
-			argMap[key] = args[i+1]
-		}
-	}
-	return mcp.CallToolRequest{
-		Params: struct {
-			Name      string         "json:\"name\""
-			Arguments map[string]any "json:\"arguments,omitempty\""
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken "json:\"progressToken,omitempty\""
-			} "json:\"_meta,omitempty\""
-		}{Name: name, Arguments: argMap},
-	}
-}
