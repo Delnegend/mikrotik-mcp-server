@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	"github.com/pheoxy/mikrotik-mcp/internal/client"
-	"github.com/pheoxy/mikrotik-mcp/internal/downloads"
-	"github.com/pheoxy/mikrotik-mcp/internal/helpers"
+	"github.com/Delnegend/mikrotik-mcp/internal/client"
+	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
+	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
 )
 
 var workspaceRoot = WorkspaceRoot

@@ -2,7 +2,7 @@ package server
 
 import (
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/pheoxy/mikrotik-mcp/internal/client"
+	"github.com/Delnegend/mikrotik-mcp/internal/client"
 )
 
 func NewMCPServer(cl *client.RouterOSClient) *server.MCPServer {

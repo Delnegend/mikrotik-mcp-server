@@ -5,8 +5,8 @@ import (
 	"log"
 
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/pheoxy/mikrotik-mcp/internal/runtime"
-	mcpserver "github.com/pheoxy/mikrotik-mcp/internal/server"
+	"github.com/Delnegend/mikrotik-mcp/internal/runtime"
+	mcpserver "github.com/Delnegend/mikrotik-mcp/internal/server"
 )
 
 func main() {

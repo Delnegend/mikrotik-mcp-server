@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pheoxy/mikrotik-mcp/internal/client"
+	"github.com/Delnegend/mikrotik-mcp/internal/client"
 )
 
 func WorkspaceRoot() string {

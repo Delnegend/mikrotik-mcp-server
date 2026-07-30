@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pheoxy/mikrotik-mcp/internal/testutil"
+	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
 )
 
 func TestLoadTLSCAFilesReturnsSortedActiveFiles(t *testing.T) {

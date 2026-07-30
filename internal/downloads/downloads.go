@@ -18,7 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"github.com/pkg/sftp"
 
-	"github.com/pheoxy/mikrotik-mcp/internal/helpers"
+	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
 )
 
 type FileTransferSettings struct {

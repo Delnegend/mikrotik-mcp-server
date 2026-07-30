@@ -5,8 +5,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/pheoxy/mikrotik-mcp/internal/client"
-	"github.com/pheoxy/mikrotik-mcp/internal/helpers"
+	"github.com/Delnegend/mikrotik-mcp/internal/client"
+	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
 )
 
 func registerLayer2Tools(s *server.MCPServer, cl *client.RouterOSClient) {

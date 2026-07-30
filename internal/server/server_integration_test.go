@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/pheoxy/mikrotik-mcp/internal/client"
-	"github.com/pheoxy/mikrotik-mcp/internal/downloads"
-	"github.com/pheoxy/mikrotik-mcp/internal/testutil"
+	"github.com/Delnegend/mikrotik-mcp/internal/client"
+	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
+	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
 )
 
 func newFakeConn(responses ...[]byte) *testutil.FakeConn {

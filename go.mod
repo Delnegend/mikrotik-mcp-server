@@ -1,4 +1,4 @@
-module github.com/pheoxy/mikrotik-mcp
+module github.com/Delnegend/mikrotik-mcp
 
 go 1.25.0
 

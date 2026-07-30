@@ -9,11 +9,11 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/pheoxy/mikrotik-mcp/internal/client"
-	"github.com/pheoxy/mikrotik-mcp/internal/downloads"
-	"github.com/pheoxy/mikrotik-mcp/internal/filters"
-	"github.com/pheoxy/mikrotik-mcp/internal/formatting"
-	"github.com/pheoxy/mikrotik-mcp/internal/helpers"
+	"github.com/Delnegend/mikrotik-mcp/internal/client"
+	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
+	"github.com/Delnegend/mikrotik-mcp/internal/filters"
+	"github.com/Delnegend/mikrotik-mcp/internal/formatting"
+	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
 )
 
 // scpChecker is an interface for checking SCP connectivity, used by healthcheck.
