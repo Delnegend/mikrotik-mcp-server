@@ -20,7 +20,9 @@ func CallToolResultFromRecords(title string, items []map[string]any, summaryNoun
 	lines = append(lines, renderTable(items, columns)...)
 
 	text := strings.Join(lines, "\n")
-	return mcp.NewToolResultText(text), nil
+	result := mcp.NewToolResultText(text)
+	result.Meta = map[string]any{"structuredContent": map[string]any{"result": items}}
+	return result, nil
 }
 
 func CallToolResultFromRecord(title, summary string, record map[string]any, preferredFields []string) (*mcp.CallToolResult, error) {
@@ -28,7 +30,9 @@ func CallToolResultFromRecord(title, summary string, record map[string]any, pref
 	lines = append(lines, renderKeyValueTable(record, preferredFields)...)
 
 	text := strings.Join(lines, "\n")
-	return mcp.NewToolResultText(text), nil
+	result := mcp.NewToolResultText(text)
+	result.Meta = map[string]any{"structuredContent": record}
+	return result, nil
 }
 
 func CallToolResultText(text string) *mcp.CallToolResult {
@@ -171,6 +175,66 @@ func displayValue(value any) string {
 		}
 		return text
 	}
+}
+
+func FormatHealthcheckResult(title string, data map[string]any, preferredFields []string) (*mcp.CallToolResult, error) {
+	lines := []string{title, ""}
+	lines = append(lines, renderKeyValueTable(data, preferredFields)...)
+
+	if status, ok := data["status"].(string); ok {
+		diagnosis := diagnoseHealth(status, data)
+		if diagnosis != "" {
+			lines = append(lines, "", "**Likely issue:** "+diagnosis)
+		}
+	}
+
+	text := strings.Join(lines, "\n")
+	result := mcp.NewToolResultText(text)
+	result.Meta = map[string]any{"structuredContent": data}
+	return result, nil
+}
+
+func diagnoseHealth(status string, data map[string]any) string {
+	if status == "healthy" {
+		return ""
+	}
+
+	api, _ := data["api"].(map[string]any)
+	scp, _ := data["scp"].(map[string]any)
+	pwd, _ := data["passwordless"].(map[string]any)
+
+	apiCode, _ := api["code"].(string)
+	scpCode, _ := scp["code"].(string)
+	pwdCode, _ := pwd["code"].(string)
+
+	if apiCode == "api.auth_failed" {
+		return "RouterOS API authentication failed — check MIKROTIK_USER and MIKROTIK_PASSWORD"
+	}
+	if apiCode == "api.connect_failed" {
+		return "Cannot connect to RouterOS API — check host and port"
+	}
+	if scpCode == "scp.config_missing" {
+		return "SCP configuration is incomplete — check MIKROTIK_SCP_PRIVATE_KEY or password credentials"
+	}
+	if scpCode == "scp.auth_failed" {
+		return "SCP authentication failed — check SCP username and credentials"
+	}
+	if scpCode == "scp.connect_failed" {
+		return "Cannot connect to SCP server — check MIKROTIK_SCP_HOST and port"
+	}
+	if pwdCode == "passwordless.fingerprint_missing" {
+		return "Passwordless rotation requires MIKROTIK_SCP_HOST_FINGERPRINT_SHA256"
+	}
+	if pwdCode == "passwordless.key_required" {
+		return "Passwordless rotation requires MIKROTIK_SCP_PRIVATE_KEY"
+	}
+	if pwdCode == "passwordless.ssh_unavailable" {
+		return "Passwordless rotation failed because SCP is unavailable"
+	}
+	if pwdCode == "passwordless.exec_failed" {
+		return "Passwordless SSH command execution failed"
+	}
+	return "Multiple issues detected — review the healthcheck table above"
 }
 
 func escapeTableCell(value string) string {

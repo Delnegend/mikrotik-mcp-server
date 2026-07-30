@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-func tempDir() string {
-	return os.TempDir()
-}
-
 func TestNormalizeSSHFingerprint(t *testing.T) {
 	// SHA256:NcOAVsJfVFKzDYKROAuSx8N0ODtJuwPgdFDMbOo5AeQ
 	input := "SHA256:NcOAVsJfVFKzDYKROAuSx8N0ODtJuwPgdFDMbOo5AeQ"
@@ -112,7 +108,7 @@ func TestLoadFileTransferSettingsRequiresCredentials(t *testing.T) {
 }
 
 func TestResolveSCPPrivateKeyPath(t *testing.T) {
-	dir := tempDir()
+	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "mikrotik-test-key")
 	if err := os.WriteFile(keyPath, []byte("private-key-content"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)

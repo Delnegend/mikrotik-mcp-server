@@ -444,6 +444,9 @@ func (c *RouterOSClient) Add(menu string, attrs map[string]any) (map[string]any,
 }
 
 func (c *RouterOSClient) Set(menu, itemID string, attrs map[string]any) (map[string]any, error) {
+	if strings.TrimSpace(itemID) == "" {
+		return nil, errors.New("item_id is required")
+	}
 	reply, err := c.execute(buildMenuSentence(menu, "set", itemID, attrs))
 	if err != nil {
 		return nil, err
@@ -452,6 +455,9 @@ func (c *RouterOSClient) Set(menu, itemID string, attrs map[string]any) (map[str
 }
 
 func (c *RouterOSClient) Remove(menu, itemID string) (map[string]any, error) {
+	if strings.TrimSpace(itemID) == "" {
+		return nil, errors.New("item_id is required")
+	}
 	reply, err := c.execute(buildMenuSentence(menu, "remove", itemID, nil))
 	if err != nil {
 		return nil, err
@@ -598,6 +604,9 @@ func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs m
 }
 
 func (c *RouterOSClient) Cancel(tag string) (map[string]any, error) {
+	if strings.TrimSpace(tag) == "" {
+		return nil, errors.New("tag is required")
+	}
 	reply, err := c.execute(buildCancelSentence(tag, ""))
 	if err != nil {
 		return nil, err

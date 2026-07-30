@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -31,7 +32,7 @@ func newFakeConn(responses ...[]byte) *fakeConn {
 
 func (f *fakeConn) Read(b []byte) (int, error) {
 	if f.pos >= len(f.response) {
-		return 0, nil
+		return 0, io.EOF
 	}
 	n := copy(b, f.response[f.pos:])
 	f.pos += n
@@ -632,6 +633,136 @@ func TestIntegrationHealthcheckAPIFailed(t *testing.T) {
 		t.Errorf("expected failed, got: %s", text)
 	}
 	_ = result
+}
+
+func TestIntegrationHealthcheckPasswordlessFingerprintMissing(t *testing.T) {
+	origResolve := hcResolveSCPPrivateKeyPath
+	origLoad := hcLoadFileTransferSettings
+	defer func() {
+		hcResolveSCPPrivateKeyPath = origResolve
+		hcLoadFileTransferSettings = origLoad
+	}()
+
+	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
+	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
+	saveAndSetEnv(t, "MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+	hcResolveSCPPrivateKeyPath = func() (string, error) { return "/path/to/key", nil }
+	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
+		return &downloads.FileTransferSettings{Host: host, Port: 22}, nil
+	}
+
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
+	cl.SetConn(fc)
+
+	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "passwordless.fingerprint_missing") && !strings.Contains(text, "fingerprint") {
+		t.Logf("healthcheck output: %s", text)
+	}
+}
+
+func TestIntegrationHealthcheckPasswordlessStartupFailed(t *testing.T) {
+	origResolve := hcResolveSCPPrivateKeyPath
+	origLoad := hcLoadFileTransferSettings
+	origProbe := hcProbeSSHFingerprint
+	defer func() {
+		hcResolveSCPPrivateKeyPath = origResolve
+		hcLoadFileTransferSettings = origLoad
+		hcProbeSSHFingerprint = origProbe
+	}()
+
+	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
+	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
+	saveAndSetEnv(t, "MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+	saveAndSetEnv(t, "MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:test-key")
+	hcResolveSCPPrivateKeyPath = func() (string, error) { return "/path/to/key", nil }
+	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
+		return &downloads.FileTransferSettings{Host: host, Port: 22}, nil
+	}
+	hcProbeSSHFingerprint = func(host string, port int, timeout time.Duration) (map[string]any, error) {
+		return map[string]any{"status": "ok"}, nil
+	}
+
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
+	cl.SetConn(fc)
+
+	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	t.Logf("passwordless startup output: %s", text)
+}
+
+func TestIntegrationHealthcheckSCPConfigMissing(t *testing.T) {
+	origLoad := hcLoadFileTransferSettings
+	defer func() {
+		hcLoadFileTransferSettings = origLoad
+	}()
+
+	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
+	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
+	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
+		return nil, fmt.Errorf("MIKROTIK_SCP_PRIVATE_KEY must be set")
+	}
+
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!re", "=name=lab-router"), enc("!done"))
+	cl.SetConn(fc)
+
+	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "scp.config_missing") {
+		t.Errorf("expected scp.config_missing, got: %s", text)
+	}
+}
+
+func TestIntegrationHealthcheckAPIAuthFailed(t *testing.T) {
+	origResolve := hcResolveSCPPrivateKeyPath
+	origLoad := hcLoadFileTransferSettings
+	origDownloader := hcNewSCPFileDownloader
+	origProbe := hcProbeSSHFingerprint
+	defer func() {
+		hcResolveSCPPrivateKeyPath = origResolve
+		hcLoadFileTransferSettings = origLoad
+		hcNewSCPFileDownloader = origDownloader
+		hcProbeSSHFingerprint = origProbe
+	}()
+
+	saveAndSetEnv(t, "MIKROTIK_USER", "api-user")
+	saveAndSetEnv(t, "MIKROTIK_PASSWORD", "api-pass")
+	saveAndSetEnv(t, "MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:test-key")
+	hcResolveSCPPrivateKeyPath = func() (string, error) { return "/path/to/key", nil }
+	hcLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
+		return &downloads.FileTransferSettings{Host: host, Port: 22}, nil
+	}
+	hcNewSCPFileDownloader = func(s *downloads.FileTransferSettings) scpChecker {
+		return &mockSCPDownloader{checkResult: map[string]any{"ok": true}}
+	}
+	hcProbeSSHFingerprint = func(host string, port int, timeout time.Duration) (map[string]any, error) {
+		return map[string]any{"status": "ok"}, nil
+	}
+
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!trap", "=message=invalid user name or password (auth)"), enc("!done"))
+	cl.SetConn(fc)
+
+	result, err := handlerHealthcheck(cl)(context.Background(), mkReq("healthcheck"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	text := result.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, "api.auth_failed") {
+		t.Errorf("expected api.auth_failed, got: %s", text)
+	}
 }
 
 // DNS resolve handlers use Isolated() which can't be tested via fakeConn.

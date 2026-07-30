@@ -14,14 +14,14 @@ func registerAccessTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithDescription("List active PPP sessions with optional service and name filters."),
 		mcp.WithString("service", mcp.Description("Filter by service type")),
 		mcp.WithString("name", mcp.Description("Filter by username")),
-	), listHandler(cl, "/ppp/active"))
+	), filteredListHandler(cl, "/ppp/active", map[string]string{"service": "service", "name": "name"}))
 
 	addTool(s, mcp.NewTool("ppp_secret_list",
 		mcp.WithDescription("List PPP secrets with optional name, service, and disabled filters."),
 		mcp.WithString("name", mcp.Description("Filter by name")),
 		mcp.WithString("service", mcp.Description("Filter by service")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/ppp/secret"))
+	), filteredListHandler(cl, "/ppp/secret", map[string]string{"name": "name", "service": "service", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("ppp_secret_add",
 		mcp.WithDescription("Create a PPP secret using RouterOS PPP secret attributes."),
@@ -37,7 +37,7 @@ func registerAccessTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithDescription("List WireGuard interfaces with optional name and disabled filters."),
 		mcp.WithString("name", mcp.Description("Filter by interface name")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/interface/wireguard"))
+	), filteredListHandler(cl, "/interface/wireguard", map[string]string{"name": "name", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("wireguard_interface_add",
 		mcp.WithDescription("Create a WireGuard interface using RouterOS WireGuard attributes."),
@@ -48,7 +48,7 @@ func registerAccessTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithDescription("List WireGuard peers with optional interface and disabled filters."),
 		mcp.WithString("interface", mcp.Description("Filter by interface")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/interface/wireguard/peers"))
+	), filteredListHandler(cl, "/interface/wireguard/peers", map[string]string{"interface": "interface", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("wireguard_peer_add",
 		mcp.WithDescription("Create a WireGuard peer using RouterOS peer attributes."),

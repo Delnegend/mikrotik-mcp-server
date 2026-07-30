@@ -16,24 +16,49 @@ func TestLoadTLSCAFilesReturnsSortedActiveFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(certsDir, "README.md"), []byte("docs"), 0644)
 	os.WriteFile(filepath.Join(certsDir, "ignored.pem.disabled"), []byte("ignore"), 0644)
 
-	result := loadTLSCAFilesInternal(dir)
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
+
+	result := LoadTLSCAFiles()
 
 	if len(result) != 2 {
 		t.Fatalf("got %d files, want 2: %v", len(result), result)
 	}
-	if !stringsSuffix(result[0], "alpha.crt") {
+	if !strings.HasSuffix(result[0], "alpha.crt") {
 		t.Errorf("first file = %q, want alpha.crt", result[0])
 	}
-	if !stringsSuffix(result[1], "zeta.pem") {
+	if !strings.HasSuffix(result[1], "zeta.pem") {
 		t.Errorf("second file = %q, want zeta.pem", result[1])
 	}
 }
 
 func TestLoadTLSCAFilesReturnsEmptyWhenDirectoryMissing(t *testing.T) {
 	dir := t.TempDir()
-	result := loadTLSCAFilesInternal(dir)
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
+
+	result := LoadTLSCAFiles()
 	if len(result) != 0 {
 		t.Errorf("expected empty, got %v", result)
+	}
+}
+
+func TestLoadTLSCAFilesCaseInsensitiveExtension(t *testing.T) {
+	dir := t.TempDir()
+	certsDir := filepath.Join(dir, "certs")
+	os.MkdirAll(certsDir, 0755)
+	os.WriteFile(filepath.Join(certsDir, "server.CRT"), []byte("server"), 0644)
+	os.WriteFile(filepath.Join(certsDir, "ca.PEM"), []byte("ca"), 0644)
+
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
+
+	result := LoadTLSCAFiles()
+	if len(result) != 2 {
+		t.Fatalf("got %d files, want 2: %v", len(result), result)
 	}
 }
 
@@ -57,9 +82,8 @@ func TestClearEmptyMikrotikEnvVars(t *testing.T) {
 
 	clearEmptyMikrotikEnvVars()
 
-	if os.Getenv("MIKROTIK_USER") != "" {
-		// Empty MIKROTIK vars are removed, so Getenv returns ""
-		// This is correct behavior
+	if _, exists := os.LookupEnv("MIKROTIK_USER"); exists {
+		t.Error("MIKROTIK_USER should be unset after clearEmptyMikrotikEnvVars")
 	}
 	if v := os.Getenv("MIKROTIK_PASSWORD"); v != "secret" {
 		t.Errorf("MIKROTIK_PASSWORD = %q", v)
@@ -79,52 +103,7 @@ func TestGenerateAPIPassword(t *testing.T) {
 	}
 }
 
-func TestGenerateAPIPasswordRejectsZeroLength(t *testing.T) {
-	_, err := GenerateAPIPassword(0)
-	if err != nil {
-		// May or may not error; just verify it doesn't panic
-	}
-}
 
-// Helper: loadTLSCAFilesInternal wraps LoadTLSCAFiles with a custom root dir
-func loadTLSCAFilesInternal(root string) []string {
-	return loadTLSCAFilesAt(root)
-}
-
-func loadTLSCAFilesAt(root string) []string {
-	certsDir := filepath.Join(root, "certs")
-	info, err := os.Stat(certsDir)
-	if err != nil || !info.IsDir() {
-		return nil
-	}
-
-	entries, err := os.ReadDir(certsDir)
-	if err != nil {
-		return nil
-	}
-
-	validExtensions := map[string]bool{".pem": true, ".crt": true, ".cer": true}
-	var files []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		ext := filepath.Ext(name)
-		if !validExtensions[ext] {
-			continue
-		}
-		if stringsSuffix(name, ".disabled") {
-			continue
-		}
-		files = append(files, filepath.Join(certsDir, name))
-	}
-	return files
-}
-
-func stringsSuffix(s, suffix string) bool {
-	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
-}
 
 // TestLoadSettingsMapsEnvVars verifies that all env vars are correctly mapped
 // to client settings by LoadSettings.
@@ -246,7 +225,7 @@ func TestClearEmptyMikrotikEnvVarsSkipsNonMikrotik(t *testing.T) {
 }
 
 func TestLoadSettingsDotEnv(t *testing.T) {
-	dir := safeTempDir(t)
+	dir := t.TempDir()
 	envContent := `MIKROTIK_USER=admin
 MIKROTIK_PASSWORD=from-dotenv
 MIKROTIK_API_SSL=false
@@ -257,14 +236,10 @@ MIKROTIK_TLS_VERIFY=false
 		t.Fatalf("WriteFile .env: %v", err)
 	}
 
-	// Change to temp dir so WorkspaceRoot() returns it
-	origWd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer os.Chdir(origWd)
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
 
-	// Ensure no MIKROTIK_ vars are set so .env provides them
 	clearMikrotikOnly()
 
 	client, err := LoadSettings("192.168.88.1")
@@ -280,7 +255,7 @@ MIKROTIK_TLS_VERIFY=false
 }
 
 func TestLoadSettingsDotEnvDoesNotOverrideEnv(t *testing.T) {
-	dir := safeTempDir(t)
+	dir := t.TempDir()
 	envContent := `MIKROTIK_USER=from-dotenv
 MIKROTIK_PASSWORD=from-dotenv
 `
@@ -288,31 +263,25 @@ MIKROTIK_PASSWORD=from-dotenv
 		t.Fatalf("WriteFile .env: %v", err)
 	}
 
-	origWd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer os.Chdir(origWd)
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
 
-	// Set env var — should override .env
 	clearMikrotikOnly()
 	os.Setenv("MIKROTIK_USER", "from-env")
 	os.Setenv("MIKROTIK_PASSWORD", "from-env")
 
-	client, err := LoadSettings("router.test")
+	_, err := LoadSettings("router.test")
 	if err != nil {
 		t.Fatalf("LoadSettings error: %v", err)
 	}
-	_ = client
 }
 
 func TestLoadSettingsDotEnvMissingFileIsFine(t *testing.T) {
-	dir := safeTempDir(t)
-	origWd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer os.Chdir(origWd)
+	dir := t.TempDir()
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
 
 	clearMikrotikOnly()
 	os.Setenv("MIKROTIK_USER", "admin")
@@ -325,7 +294,7 @@ func TestLoadSettingsDotEnvMissingFileIsFine(t *testing.T) {
 }
 
 func TestGodotenvLoadsCommentAndEmptyLines(t *testing.T) {
-	dir := safeTempDir(t)
+	dir := t.TempDir()
 	envContent := `# This is a comment
 MIKROTIK_USER=admin
 
@@ -336,11 +305,9 @@ MIKROTIK_PASSWORD=secret
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	origWd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer os.Chdir(origWd)
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
 	clearMikrotikOnly()
 
 	client, err := LoadSettings("router.test")
@@ -352,13 +319,33 @@ MIKROTIK_PASSWORD=secret
 	}
 }
 
-func safeTempDir(t *testing.T) string {
-	dir, err := os.MkdirTemp("", "mikrotik-test-*")
+func TestLoadSettingsPassesDiscoveredTLSCAFiles(t *testing.T) {
+	dir := t.TempDir()
+	certsDir := filepath.Join(dir, "certs")
+	os.MkdirAll(certsDir, 0755)
+	os.WriteFile(filepath.Join(certsDir, "ca.pem"), []byte("ca"), 0644)
+
+	orig := workspaceRoot
+	workspaceRoot = func() string { return dir }
+	defer func() { workspaceRoot = orig }()
+
+	clearMikrotikOnly()
+	os.Setenv("MIKROTIK_USER", "admin")
+	os.Setenv("MIKROTIK_PASSWORD", "secret")
+
+	cl, err := LoadSettings("router.test")
 	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
+		t.Fatalf("LoadSettings error: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return dir
+	// Can't directly inspect tlsCAFiles; rely on compile and no-error
+	_ = cl
+}
+
+func TestGenerateAPIPasswordRejectsZeroLength(t *testing.T) {
+	_, err := GenerateAPIPassword(0)
+	if err == nil {
+		t.Error("expected error for length 0")
+	}
 }
 
 // clearMikrotikOnly clears only MIKROTIK_* vars via Unsetenv

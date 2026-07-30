@@ -14,7 +14,7 @@ func registerLayer2Tools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithDescription("List bridges with optional name and disabled filters."),
 		mcp.WithString("name", mcp.Description("Filter by bridge name")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/interface/bridge"))
+	), filteredListHandler(cl, "/interface/bridge", map[string]string{"name": "name", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("bridge_add",
 		mcp.WithDescription("Create a bridge using RouterOS bridge attributes."),
@@ -31,7 +31,7 @@ func registerLayer2Tools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("bridge", mcp.Description("Filter by bridge")),
 		mcp.WithString("interface", mcp.Description("Filter by interface")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/interface/bridge/port"))
+	), filteredListHandler(cl, "/interface/bridge/port", map[string]string{"bridge": "bridge", "interface": "interface", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("bridge_port_add",
 		mcp.WithDescription("Add a bridge port using RouterOS bridge port attributes."),
@@ -48,7 +48,7 @@ func registerLayer2Tools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("bridge", mcp.Description("Filter by bridge")),
 		mcp.WithString("vlan_ids", mcp.Description("Filter by VLAN IDs")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/interface/bridge/vlan"))
+	), filteredListHandler(cl, "/interface/bridge/vlan", map[string]string{"bridge": "bridge", "vlan_ids": "vlan-ids", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("bridge_vlan_add",
 		mcp.WithDescription("Add a bridge VLAN entry using RouterOS bridge VLAN attributes."),
@@ -65,7 +65,7 @@ func registerLayer2Tools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("name", mcp.Description("Filter by VLAN name")),
 		mcp.WithString("interface", mcp.Description("Filter by parent interface")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/interface/vlan"))
+	), filteredListHandler(cl, "/interface/vlan", map[string]string{"name": "name", "interface": "interface", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("vlan_add",
 		mcp.WithDescription("Create a VLAN interface using RouterOS VLAN attributes."),
@@ -79,8 +79,31 @@ func registerLayer2Tools(s *server.MCPServer, cl *client.RouterOSClient) {
 }
 
 func listHandler(cl *client.RouterOSClient, menu string) server.ToolHandlerFunc {
+	return filteredListHandler(cl, menu, nil)
+}
+
+func filteredListHandler(cl *client.RouterOSClient, menu string, filterParams map[string]string) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		items, err := helpers.PrintRecords(cl, menu, nil, nil, nil)
+		var queries []string
+		for param, rosField := range filterParams {
+			v, ok := req.Params.Arguments[param]
+			if !ok {
+				continue
+			}
+			switch val := v.(type) {
+			case bool:
+				if val {
+					queries = append(queries, rosField+"=true")
+				} else {
+					queries = append(queries, rosField+"=false")
+				}
+			case string:
+				if val != "" {
+					queries = append(queries, rosField+"="+val)
+				}
+			}
+		}
+		items, err := helpers.PrintRecords(cl, menu, nil, queries, nil)
 		if err != nil {
 			return nil, err
 		}

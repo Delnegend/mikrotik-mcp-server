@@ -15,6 +15,8 @@ import (
 	"github.com/pheoxy/mikrotik-mcp/internal/helpers"
 )
 
+var workspaceRoot = WorkspaceRoot
+
 func WorkspaceRoot() string {
 	dir, _ := os.Getwd()
 	return dir
@@ -22,7 +24,7 @@ func WorkspaceRoot() string {
 
 func LoadSettings(host string) (*client.RouterOSClient, error) {
 	clearEmptyMikrotikEnvVars()
-	_ = godotenv.Load(filepath.Join(WorkspaceRoot(), ".env"))
+	_ = godotenv.Load(filepath.Join(workspaceRoot(), ".env"))
 
 	username := os.Getenv("MIKROTIK_USER")
 	if username == "" {
@@ -66,7 +68,7 @@ func LoadSettings(host string) (*client.RouterOSClient, error) {
 }
 
 func LoadTLSCAFiles() []string {
-	certsDir := filepath.Join(WorkspaceRoot(), "certs")
+	certsDir := filepath.Join(workspaceRoot(), "certs")
 	info, err := os.Stat(certsDir)
 	if err != nil || !info.IsDir() {
 		return nil
@@ -114,6 +116,24 @@ func passwordlessEnabled() bool {
 	return helpers.ParseBool(os.Getenv("MIKROTIK_API_PASSWORDLESS_ENABLED"), false)
 }
 
+func startupPasswordlessState() map[string]string {
+	return map[string]string{
+		"status":  os.Getenv("MIKROTIK_STARTUP_PASSWORDLESS_STATUS"),
+		"code":    os.Getenv("MIKROTIK_STARTUP_PASSWORDLESS_CODE"),
+		"message": os.Getenv("MIKROTIK_STARTUP_PASSWORDLESS_MESSAGE"),
+	}
+}
+
+func setStartupPasswordlessState(status, code, message string) {
+	if status == "" {
+		clearStartupPasswordlessState()
+		return
+	}
+	os.Setenv("MIKROTIK_STARTUP_PASSWORDLESS_STATUS", status)
+	os.Setenv("MIKROTIK_STARTUP_PASSWORDLESS_CODE", code)
+	os.Setenv("MIKROTIK_STARTUP_PASSWORDLESS_MESSAGE", message)
+}
+
 func clearStartupPasswordlessState() {
 	for _, key := range []string{
 		"MIKROTIK_STARTUP_PASSWORDLESS_STATUS",
@@ -144,6 +164,9 @@ func rotateStartupAPIPassword(host, username string) (string, error) {
 }
 
 func GenerateAPIPassword(length int) (string, error) {
+	if length < 1 {
+		return "", fmt.Errorf("password length must be at least 1")
+	}
 	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {

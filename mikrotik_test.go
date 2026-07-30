@@ -56,6 +56,8 @@ func TestBinaryRunsAsStdioMCPServer(t *testing.T) {
 		stderrCh <- string(b)
 	}()
 
+	stdoutReader := bufio.NewReader(stdout)
+
 	// Send initialize request
 	req := map[string]any{
 		"jsonrpc": "2.0",
@@ -73,7 +75,7 @@ func TestBinaryRunsAsStdioMCPServer(t *testing.T) {
 	writeJSON(t, stdin, req)
 
 	// Read initialize response
-	resp := readJSONLine(t, stdout)
+	resp := readJSONLine(t, stdoutReader)
 	if resp["id"] != float64(1) {
 		t.Errorf("initialize response id = %v, want 1", resp["id"])
 	}
@@ -104,7 +106,7 @@ func TestBinaryRunsAsStdioMCPServer(t *testing.T) {
 	writeJSON(t, stdin, req2)
 
 	// Read tools/list response
-	resp2 := readJSONLine(t, stdout)
+	resp2 := readJSONLine(t, stdoutReader)
 	if resp2["id"] != float64(2) {
 		t.Errorf("tools/list response id = %v, want 2", resp2["id"])
 	}
@@ -145,7 +147,7 @@ func TestBinaryRunsAsStdioMCPServer(t *testing.T) {
 		"method":  "shutdown",
 	}
 	writeJSON(t, stdin, shutdown)
-	readJSONLine(t, stdout) // read shutdown response
+	readJSONLine(t, stdoutReader) // read shutdown response
 
 	stdin.Close()
 	cmd.Wait()
@@ -172,24 +174,22 @@ func writeJSON(t *testing.T, w io.WriteCloser, v map[string]any) {
 	}
 }
 
-func readJSONLine(t *testing.T, r io.ReadCloser) map[string]any {
+func readJSONLine(t *testing.T, r *bufio.Reader) map[string]any {
 	t.Helper()
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 65536), 65536)
 	lineCh := make(chan map[string]any, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		if scanner.Scan() {
-			line := scanner.Text()
-			var data map[string]any
-			if err := json.Unmarshal([]byte(line), &data); err != nil {
-				errCh <- err
-				return
-			}
-			lineCh <- data
-		} else {
-			errCh <- scanner.Err()
+		line, err := r.ReadString('\n')
+		if err != nil {
+			errCh <- err
+			return
 		}
+		var data map[string]any
+		if err := json.Unmarshal([]byte(line), &data); err != nil {
+			errCh <- err
+			return
+		}
+		lineCh <- data
 	}()
 
 	select {

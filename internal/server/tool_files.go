@@ -53,7 +53,7 @@ func registerFileTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("directory", mcp.Description("Filter by directory")),
 		mcp.WithString("name", mcp.Description("Filter by file name")),
 		mcp.WithString("file_type", mcp.Description("Filter by file type (e.g. script, backup, export)")),
-	), listHandler(cl, "/file"))
+	), filteredListHandler(cl, "/file", map[string]string{"name": "name", "file_type": "type"}))
 }
 
 func backupSaveHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {
@@ -155,6 +155,7 @@ func backupCollectHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		namePrefix := argString(req, "name_prefix", "")
 		includeSensitive := argBool(req, "include_sensitive", false)
 		compact := argBool(req, "compact", false)
+		localDirArg := argString(req, "local_dir", "")
 
 		prefix := namePrefix
 		if prefix == "" {
@@ -213,7 +214,7 @@ func backupCollectHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {
 
 		downloader := ftNewSCPFileDownloader(settings)
 
-		localDir, _ := helpers.NormalizeLocalDirectory("")
+		localDir, _ := helpers.NormalizeLocalDirectory(localDirArg)
 		localBackup := helpers.UniqueLocalPath(localDir, fmt.Sprintf("%s-%s-%s.backup", routerSlug, prefix, timestamp))
 		localExport := helpers.UniqueLocalPath(localDir, fmt.Sprintf("%s-%s-%s.rsc", routerSlug, prefix, timestamp))
 

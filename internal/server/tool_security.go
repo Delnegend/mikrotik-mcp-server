@@ -16,7 +16,7 @@ func registerSecurityTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("chain", mcp.Description("Filter by chain")),
 		mcp.WithString("action", mcp.Description("Filter by action")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/ip/firewall/filter"))
+	), filteredListHandler(cl, "/ip/firewall/filter", map[string]string{"chain": "chain", "action": "action", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("firewall_filter_add",
 		mcp.WithDescription("Add a firewall filter rule using RouterOS firewall attributes."),
@@ -39,7 +39,7 @@ func registerSecurityTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("chain", mcp.Description("Filter by chain")),
 		mcp.WithString("action", mcp.Description("Filter by action")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/ip/firewall/nat"))
+	), filteredListHandler(cl, "/ip/firewall/nat", map[string]string{"chain": "chain", "action": "action", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("firewall_nat_add",
 		mcp.WithDescription("Add a firewall NAT rule using RouterOS firewall attributes."),
@@ -69,7 +69,7 @@ func registerSecurityTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("list_name", mcp.Description("Filter by address list name")),
 		mcp.WithString("address", mcp.Description("Filter by address")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), listHandler(cl, "/ip/firewall/address-list"))
+	), filteredListHandler(cl, "/ip/firewall/address-list", map[string]string{"list_name": "list", "address": "address", "disabled": "disabled"}))
 
 	addTool(s, mcp.NewTool("firewall_address_list_add",
 		mcp.WithDescription("Add a firewall address-list entry using RouterOS firewall attributes."),

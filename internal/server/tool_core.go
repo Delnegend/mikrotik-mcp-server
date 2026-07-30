@@ -751,7 +751,7 @@ func handlerHealthcheck(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		data["status"] = overallStatus
 
 		title := fmt.Sprintf("Healthcheck: %s", overallStatus)
-		return formatting.CallToolResultFromRecord("Healthcheck", title, data,
+		return formatting.FormatHealthcheckResult(title, data,
 			[]string{"success", "status", "timestamp", "target_host"})
 	}
 }
@@ -918,13 +918,13 @@ func probePasswordless(cl *client.RouterOSClient, scpResult map[string]any) map[
 
 func classifyAPIError(err error) string {
 	errStr := err.Error()
-	if contains(errStr, "login") || contains(errStr, "auth") {
+	if strings.Contains(errStr, "login") || strings.Contains(errStr, "auth") {
 		return "api.auth_failed"
 	}
-	if contains(errStr, "connect") || contains(errStr, "timeout") {
+	if strings.Contains(errStr, "connect") || strings.Contains(errStr, "timeout") {
 		return "api.connect_failed"
 	}
-	if contains(errStr, "routeros: fatal") {
+	if strings.Contains(errStr, "routeros: fatal") {
 		return "api.fatal"
 	}
 	return "api.error"
@@ -932,16 +932,16 @@ func classifyAPIError(err error) string {
 
 func classifySCPError(err error) string {
 	errStr := err.Error()
-	if contains(errStr, "MIKROTIK_SCP_PRIVATE_KEY") || contains(errStr, "must be set") {
+	if strings.Contains(errStr, "MIKROTIK_SCP_PRIVATE_KEY") || strings.Contains(errStr, "must be set") {
 		return "scp.config_missing"
 	}
-	if contains(errStr, "authentication failed") || contains(errStr, "auth") {
+	if strings.Contains(errStr, "authentication failed") || strings.Contains(errStr, "auth") {
 		return "scp.auth_failed"
 	}
-	if contains(errStr, "directory probe failed") || contains(errStr, "ReadDir") {
+	if strings.Contains(errStr, "directory probe failed") || strings.Contains(errStr, "ReadDir") {
 		return "scp.operation_failed"
 	}
-	if contains(errStr, "connect") {
+	if strings.Contains(errStr, "connect") {
 		return "scp.connect_failed"
 	}
 	return "scp.error"
@@ -956,15 +956,6 @@ func classifyOverallHealth(apiOK, scpOK, pwdEnabled, pwdOK bool) string {
 		return "degraded"
 	}
 	return "failed"
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func handlerInterfaceList(cl *client.RouterOSClient) server.ToolHandlerFunc {
