@@ -7,7 +7,7 @@
 >
 > **Coverage snapshot:** Python has 176 test functions across 4 files. Go has 96 across 7 files. Approximately 110 Python tests have no Go counterpart. Of the ~30 where both exist, roughly half use weaker assertions in Go (substring `contains()` vs exact sentence verification, no structured-content checks).
 >
-> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓, Phase 4 ✓ — all ~250 tasks complete (Phase 4 + review fixes done 2026-07-31)
+> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓, Phase 4 ✓ — all ~250 tasks complete (Phase 4 + review fixes + re-review done 2026-07-31)
 >
 > **Full sweep 2026-07-31:** Phases 1–3 audited end-to-end before Phase 4. Found and fixed: (1) Phase 2.1 structured-content assertions were never written — backfilled with `assertStructuredContent` in 8 formatting tests + 10 integration tests; (2) dead code `NewSFTPFileServer`, `serveSFTP`/`setSFTPDir`/`sftpDir` (SFTP-over-SSH path never exercised), `sshHostKeySHA256`, `headers` var in `renderTable` — all deleted; (3) CRLF line endings in all Go files (from module-rename commit) — converted to LF, `gofmt -l` now empty; (4) go.mod upgraded to latest via `go get -u ./...` (user decision) with mcp-go v0.57 API migration.
 
@@ -561,7 +561,7 @@ Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent —
 - [x] Sort the keys before emitting attr words — `normalizeAttrs` now returns a sorted `[]struct{key, value string}`; `TestNormalizeAttrsSortsKeys` verifies sorted order + nil skipping
 - [x] Adapt `buildMenuSentence`, `Print`, `buildCommandSentence`, `Listen` callers to use the sorted return type
 
-> **D9 follow-up (non-blocking):** The deterministic sort is complete, but Phase 3 integration tests still use `assertSent(t, fc, substring)` / `containsAll()` substring matching. The D9 decision was to "force exact assertions after making attr order deterministic." A future pass should replace substring checks with decoded-sentence exact-word assertions where attr order matters.
+> **D9 follow-up (done):** The deterministic sort is complete, and Phase 3 integration tests have been upgraded from substring `assertSent`/`containsAll()` matching to exact decoded-word assertions via `assertSentExact` + `assertSentContainsExact` helpers. `BuildEqualityQueries` and `filteredListHandler` sort queries for determinism. D9 promise fulfilled.
 
 ---
 
@@ -620,3 +620,17 @@ Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent —
 | 3 | Extended coverage | 10–15 |
 | 4 | Robustness & hygiene | 5–7 |
 | **Total** | | **27–40** |
+
+---
+
+## Project Sign-off — 2026-07-31
+
+**Status: COMPLETE**
+
+All four phases are done and verified:
+- **Phase 1** — Production correctness fixes (tool schemas, attribute extraction, input validation, panic recovery, CA loading, private-key hardening). Verified Round 2.
+- **Phase 2** — Core test suite porting (96 → 250+ test functions, structured content, runtime tests, list filters, healthcheck formatter, backup-collect fix). Verified Round 2.
+- **Phase 3** — Extended coverage (SCP/SSH integration tests, bridge/VLAN/firewall/PPP/WireGuard tool tests, file/backup/export tests, remaining core tool tests). Verified Round 2.
+- **Phase 4** — Robustness & hygiene (concurrency mutex, read/write deadlines, context propagation, network guardrail, deterministic attr order, exact wire-sentence assertions, dead-code cleanup). Verified Round 2 + re-review.
+
+The Go port now matches the Python original in correctness, coverage, and robustness. The test suite is green (`go test ./...`), `go vet` is clean, and `gofmt -l` is empty.
