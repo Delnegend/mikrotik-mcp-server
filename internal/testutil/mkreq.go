@@ -10,12 +10,9 @@ func MkReq(name string, args ...any) mcp.CallToolRequest {
 		}
 	}
 	return mcp.CallToolRequest{
-		Params: struct {
-			Name      string         `json:"name"`
-			Arguments map[string]any `json:"arguments,omitempty"`
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken `json:"progressToken,omitempty"`
-			} `json:"_meta,omitempty"`
-		}{Name: name, Arguments: argMap},
+		Params: mcp.CallToolParams{
+			Name:      name,
+			Arguments: argMap,
+		},
 	}
 }

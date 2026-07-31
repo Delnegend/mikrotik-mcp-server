@@ -387,5 +387,3 @@ func generateTestPrivateKey() ([]byte, error) {
 	pemBlock := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: marshaled}
 	return pem.EncodeToMemory(pemBlock), nil
 }
-
-

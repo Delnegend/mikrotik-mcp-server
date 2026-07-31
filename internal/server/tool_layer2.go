@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func registerLayer2Tools(s *server.MCPServer, cl *client.RouterOSClient) {
@@ -86,7 +86,7 @@ func filteredListHandler(cl *client.RouterOSClient, menu string, filterParams ma
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var queries []string
 		for param, rosField := range filterParams {
-			v, ok := req.Params.Arguments[param]
+			v, ok := argMap(req)[param]
 			if !ok {
 				continue
 			}

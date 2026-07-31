@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
 	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // Wire-protocol helpers
@@ -96,6 +96,16 @@ func assertResult(t *testing.T, result *mcp.CallToolResult) {
 	t.Helper()
 	if result.IsError {
 		t.Fatalf("handler error: %s", result.Content[0].(mcp.TextContent).Text)
+	}
+}
+
+func assertStructuredContent(t *testing.T, result *mcp.CallToolResult) {
+	t.Helper()
+	if result.Meta == nil {
+		t.Fatal("missing result.Meta")
+	}
+	if _, ok := result.Meta.AdditionalFields["structuredContent"]; !ok {
+		t.Fatal("missing structuredContent in result.Meta")
 	}
 }
 

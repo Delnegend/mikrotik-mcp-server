@@ -8,7 +8,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -20,7 +19,6 @@ type inMemorySSHServer struct {
 	mu         sync.Mutex
 	listener   net.Listener
 	listenAddr string
-	sftpDir    string
 }
 
 func newInMemorySSHServer(t *testing.T) *inMemorySSHServer {
@@ -62,10 +60,6 @@ func (s *inMemorySSHServer) setPassword(pw string) {
 	s.password = pw
 }
 
-func (s *inMemorySSHServer) setSFTPDir(dir string) {
-	s.sftpDir = dir
-}
-
 func (s *inMemorySSHServer) commandsRun() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -89,16 +83,6 @@ func (s *inMemorySSHServer) serverConfig() *ssh.ServerConfig {
 	}
 	config.AddHostKey(s.hostKey)
 	return config
-}
-
-func (s *inMemorySSHServer) serveSFTP(channel ssh.Channel) {
-	opts := []sftp.ServerOption{sftp.WithServerWorkingDirectory(s.sftpDir)}
-	svr, err := sftp.NewServer(channel, opts...)
-	if err != nil {
-		s.t.Logf("sftp server error: %v", err)
-		return
-	}
-	svr.Serve()
 }
 
 func (s *inMemorySSHServer) acceptLoop() {
@@ -145,12 +129,7 @@ func (s *inMemorySSHServer) handleChannels(chans <-chan ssh.NewChannel) {
 					channel.SendRequest("exit-status", false, []byte{0, 0, 0, 0})
 					return
 				case "subsystem":
-					if string(req.Payload) == "sftp" {
-						req.Reply(true, nil)
-						s.serveSFTP(channel)
-						return
-					}
-					req.Reply(true, nil)
+					req.Reply(false, nil)
 				default:
 					req.Reply(true, nil)
 				}

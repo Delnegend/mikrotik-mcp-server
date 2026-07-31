@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh"
 	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
 )
@@ -222,7 +222,7 @@ func LoadFileTransferSettings(apiHost string) (*FileTransferSettings, error) {
 		KeyPassphrase:        os.Getenv("MIKROTIK_SCP_KEY_PASSPHRASE"),
 		SSHFingerprintSHA256: fingerprint,
 		Port:                 helpers.IntFromEnv("MIKROTIK_SCP_PORT", 22),
-		Timeout: time.Duration(helpers.FloatFromEnv("MIKROTIK_SCP_TIMEOUT", 30.0) * float64(time.Second)),
+		Timeout:              time.Duration(helpers.FloatFromEnv("MIKROTIK_SCP_TIMEOUT", 30.0) * float64(time.Second)),
 	}, nil
 }
 
@@ -406,12 +406,12 @@ func ProbeSSHFingerprint(host string, port int, timeout time.Duration) (map[stri
 	keyType := serverKey.Type()
 	fingerprint := ssh.FingerprintSHA256(serverKey)
 	return map[string]any{
-		"status":               "ok",
-		"message":              fmt.Sprintf("SSH server fingerprint probe succeeded for %s", addr),
-		"host":                 host,
-		"port":                 port,
-		"key_type":             keyType,
-		"fingerprint_sha256":   fingerprint,
+		"status":             "ok",
+		"message":            fmt.Sprintf("SSH server fingerprint probe succeeded for %s", addr),
+		"host":               host,
+		"port":               port,
+		"key_type":           keyType,
+		"fingerprint_sha256": fingerprint,
 	}, nil
 }
 
@@ -462,17 +462,6 @@ func NormalizeSSHFingerprint(value string) (string, error) {
 	encoded := base64.StdEncoding.EncodeToString(decoded)
 	encoded = strings.TrimRight(encoded, "=")
 	return "SHA256:" + encoded, nil
-}
-
-func sshHostKeySHA256(key ssh.PublicKey) string {
-	hash := sha256.Sum256(key.Marshal())
-	encoded := base64.StdEncoding.EncodeToString(hash[:])
-	encoded = strings.TrimRight(encoded, "=")
-	return "SHA256:" + encoded
-}
-
-func NewSFTPFileServer(conn net.Conn, rootDir string) (*sftp.Server, error) {
-	return sftp.NewServer(conn, sftp.WithServerWorkingDirectory(rootDir))
 }
 
 func shellQuote(s string) string {

@@ -753,5 +753,3 @@ func TestLoginTrapRaisesCredentialError_Strengthened(t *testing.T) {
 func newFakeConn() *testutil.FakeConn {
 	return testutil.NewFakeConn()
 }
-
-

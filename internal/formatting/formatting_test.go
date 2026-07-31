@@ -1,16 +1,31 @@
 package formatting
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+func assertStructuredContent(t *testing.T, result *mcp.CallToolResult, want any) {
+	t.Helper()
+	if result.Meta == nil {
+		t.Fatal("missing result.Meta")
+	}
+	sc, ok := result.Meta.AdditionalFields["structuredContent"]
+	if !ok {
+		t.Fatal("missing structuredContent in result.Meta")
+	}
+	if !reflect.DeepEqual(sc, want) {
+		t.Errorf("structuredContent = %v, want %v", sc, want)
+	}
+}
+
 func TestCallToolResultFromRecordWithSystemResource(t *testing.T) {
 	record := map[string]any{
-		"version":   "7.17",
-		"uptime":    "1d2h",
+		"version":    "7.17",
+		"uptime":     "1d2h",
 		"board-name": "RB5009",
 	}
 
@@ -38,16 +53,17 @@ func TestCallToolResultFromRecordWithSystemResource(t *testing.T) {
 	if !strings.Contains(text, "| board-name | RB5009 |") {
 		t.Errorf("missing board-name row")
 	}
+	assertStructuredContent(t, result, record)
 }
 
 func TestCallToolResultFromRecordsWithInterfaceList(t *testing.T) {
 	items := []map[string]any{
 		{
-			"name":    "ether1",
-			"type":    "ether",
-			"running": "true",
-			"disabled": "false",
-			"actual-mtu": "1500",
+			"name":        "ether1",
+			"type":        "ether",
+			"running":     "true",
+			"disabled":    "false",
+			"actual-mtu":  "1500",
 			"mac-address": "00:11:22:33:44:55",
 		},
 	}
@@ -79,15 +95,16 @@ func TestCallToolResultFromRecordsWithInterfaceList(t *testing.T) {
 	if !strings.Contains(text, "| ether1 | ether | yes | no | 1500 | 00:11:22:33:44:55 |") {
 		t.Errorf("missing data row, got: %s", text)
 	}
+	assertStructuredContent(t, result, map[string]any{"result": items})
 }
 
 func TestCallToolResultFromRecordsFormatsEmptyValues(t *testing.T) {
 	items := []map[string]any{
 		{
-			"address":  "192.0.2.0/24",
-			"gateway":  "192.0.2.1",
+			"address":    "192.0.2.0/24",
+			"gateway":    "192.0.2.1",
 			"dns-server": "",
-			"domain":   "",
+			"domain":     "",
 			"ntp-server": "",
 		},
 	}
@@ -112,6 +129,7 @@ func TestCallToolResultFromRecordsFormatsEmptyValues(t *testing.T) {
 	if !strings.Contains(text, "| 192.0.2.0/24 | 192.0.2.1 | - | - | - |") {
 		t.Errorf("empty fields should show '-', got: %s", text)
 	}
+	assertStructuredContent(t, result, map[string]any{"result": items})
 }
 
 func TestCallToolResultFromRecordsPingFormat(t *testing.T) {
@@ -153,6 +171,7 @@ func TestCallToolResultFromRecordsPingFormat(t *testing.T) {
 	if !strings.Contains(text, "| 0 | 192.0.2.1 | 56 | 64 | 4ms | reachable |") {
 		t.Errorf("missing ping data row, got: %s", text)
 	}
+	assertStructuredContent(t, result, map[string]any{"result": items})
 }
 
 func TestCallToolResultFromRecordsTracerouteFormat(t *testing.T) {
@@ -194,6 +213,7 @@ func TestCallToolResultFromRecordsTracerouteFormat(t *testing.T) {
 	if !strings.Contains(text, "| 1 | edge-router | 198.51.100.1 | 0% | 2ms | 2ms | 2ms | 3ms | reachable |") {
 		t.Errorf("missing traceroute data row, got: %s", text)
 	}
+	assertStructuredContent(t, result, map[string]any{"result": items})
 }
 
 func TestCallToolResultFromRecordDNSResolve(t *testing.T) {
@@ -222,6 +242,7 @@ func TestCallToolResultFromRecordDNSResolve(t *testing.T) {
 	if !strings.Contains(text, "| address | 93.184.216.34 |") {
 		t.Errorf("missing address row, got: %s", text)
 	}
+	assertStructuredContent(t, result, record)
 }
 
 func TestCallToolResultFromRecordDNSGet(t *testing.T) {
@@ -248,6 +269,7 @@ func TestCallToolResultFromRecordDNSGet(t *testing.T) {
 	if !strings.Contains(text, "| servers | 1.1.1.1,8.8.8.8 |") {
 		t.Errorf("missing servers row, got: %s", text)
 	}
+	assertStructuredContent(t, result, record)
 }
 
 func TestDisplayValueTrueFalse(t *testing.T) {
@@ -273,13 +295,13 @@ func TestDisplayValueTrueFalse(t *testing.T) {
 
 func TestCallToolResultFromRecordInterfaceGetPreferredFieldsOrder(t *testing.T) {
 	record := map[string]any{
-		"name":       "ether1",
-		"type":       "ether",
-		"running":    "true",
-		"disabled":   "false",
-		"actual-mtu": "1500",
+		"name":        "ether1",
+		"type":        "ether",
+		"running":     "true",
+		"disabled":    "false",
+		"actual-mtu":  "1500",
 		"mac-address": "00:11:22:33:44:55",
-		"comment":    "",
+		"comment":     "",
 	}
 
 	result, err := CallToolResultFromRecord(
@@ -304,6 +326,7 @@ func TestCallToolResultFromRecordInterfaceGetPreferredFieldsOrder(t *testing.T) 
 	} else if namePos > typePos {
 		t.Errorf("expected name before type in preferred fields")
 	}
+	assertStructuredContent(t, result, record)
 }
 
 func TestCallToolResultError(t *testing.T) {

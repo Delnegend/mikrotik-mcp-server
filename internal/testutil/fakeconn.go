@@ -57,8 +57,8 @@ func (f *FakeConn) Close() error {
 	return nil
 }
 
-func (f *FakeConn) LocalAddr() net.Addr              { return nil }
-func (f *FakeConn) RemoteAddr() net.Addr             { return nil }
-func (f *FakeConn) SetDeadline(t time.Time) error     { return nil }
-func (f *FakeConn) SetReadDeadline(t time.Time) error { return nil }
+func (f *FakeConn) LocalAddr() net.Addr                { return nil }
+func (f *FakeConn) RemoteAddr() net.Addr               { return nil }
+func (f *FakeConn) SetDeadline(t time.Time) error      { return nil }
+func (f *FakeConn) SetReadDeadline(t time.Time) error  { return nil }
 func (f *FakeConn) SetWriteDeadline(t time.Time) error { return nil }

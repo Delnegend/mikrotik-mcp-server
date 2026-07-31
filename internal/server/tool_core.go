@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
 	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
 	"github.com/Delnegend/mikrotik-mcp/internal/filters"
 	"github.com/Delnegend/mikrotik-mcp/internal/formatting"
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // scpChecker is an interface for checking SCP connectivity, used by healthcheck.
@@ -24,13 +24,13 @@ type scpChecker interface {
 // Package-level variables for healthcheck dependencies.
 // Swappable in tests via save/swap/defer-restore pattern.
 var (
-	hcLoadFileTransferSettings   = downloads.LoadFileTransferSettings
-	hcNewSCPFileDownloader       = func(s *downloads.FileTransferSettings) scpChecker {
+	hcLoadFileTransferSettings = downloads.LoadFileTransferSettings
+	hcNewSCPFileDownloader     = func(s *downloads.FileTransferSettings) scpChecker {
 		return downloads.NewSCPFileDownloader(s)
 	}
-	hcProbeSSHFingerprint         = downloads.ProbeSSHFingerprint
+	hcProbeSSHFingerprint        = downloads.ProbeSSHFingerprint
 	hcCheckPasswordRotationReady = downloads.CheckPasswordRotationReady
-	hcResolveSCPPrivateKeyPath    = downloads.ResolveSCPPrivateKeyPath
+	hcResolveSCPPrivateKeyPath   = downloads.ResolveSCPPrivateKeyPath
 )
 
 func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
@@ -196,12 +196,17 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 
 // ---- Helper functions for argument extraction ----
 
+func argMap(req mcp.CallToolRequest) map[string]any {
+	m, _ := req.Params.Arguments.(map[string]any)
+	return m
+}
+
 func argString(req mcp.CallToolRequest, key, defaultVal string) string {
 	return mcp.ParseString(req, key, defaultVal)
 }
 
 func argStringSlice(req mcp.CallToolRequest, key string) []string {
-	v, ok := req.Params.Arguments[key]
+	v, ok := argMap(req)[key]
 	if !ok {
 		return nil
 	}
@@ -227,7 +232,7 @@ func argBool(req mcp.CallToolRequest, key string, defaultVal bool) bool {
 }
 
 func argBoolNullable(req mcp.CallToolRequest, key string) *bool {
-	v, ok := req.Params.Arguments[key]
+	v, ok := argMap(req)[key]
 	if !ok {
 		return nil
 	}
@@ -239,7 +244,7 @@ func argBoolNullable(req mcp.CallToolRequest, key string) *bool {
 }
 
 func argObject(req mcp.CallToolRequest, key string) map[string]any {
-	v, ok := req.Params.Arguments[key]
+	v, ok := argMap(req)[key]
 	if !ok {
 		return nil
 	}
@@ -285,7 +290,7 @@ func handlerResourcePrint(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		queries := argStringSlice(req, "queries")
 		attrs := argObject(req, "attributes")
 		if attrs == nil {
-			attrs = stripControlKeys(req.Params.Arguments, "menu", "proplist", "queries", "jq_filter")
+			attrs = stripControlKeys(argMap(req), "menu", "proplist", "queries", "jq_filter")
 		}
 		jqFilter := argString(req, "jq_filter", "")
 
@@ -319,7 +324,7 @@ func handlerResourceAdd(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		menu := argString(req, "menu", "")
 		attrs := argObject(req, "attributes")
 		if attrs == nil {
-			attrs = stripControlKeys(req.Params.Arguments, "menu")
+			attrs = stripControlKeys(argMap(req), "menu")
 		}
 		result, err := cl.Add(menu, attrs)
 		if err != nil {
@@ -338,7 +343,7 @@ func handlerResourceSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 		attrs := argObject(req, "attributes")
 		if attrs == nil {
-			attrs = stripControlKeys(req.Params.Arguments, "menu", "item_id")
+			attrs = stripControlKeys(argMap(req), "menu", "item_id")
 		}
 		result, err := cl.Set(menu, itemID, attrs)
 		if err != nil {
@@ -369,7 +374,7 @@ func handlerCommandRun(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		queries := argStringSlice(req, "queries")
 		attrs := argObject(req, "attributes")
 		if attrs == nil {
-			attrs = stripControlKeys(req.Params.Arguments, "command", "queries")
+			attrs = stripControlKeys(argMap(req), "command", "queries")
 		}
 		result, err := cl.Run(command, attrs, queries, "")
 		if err != nil {
@@ -386,7 +391,7 @@ func handlerResourceListen(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		queries := argStringSlice(req, "queries")
 		attrs := argObject(req, "attributes")
 		if attrs == nil {
-			attrs = stripControlKeys(req.Params.Arguments, "menu", "proplist", "queries", "tag", "max_events")
+			attrs = stripControlKeys(argMap(req), "menu", "proplist", "queries", "tag", "max_events")
 		}
 		tag := argString(req, "tag", "")
 		maxEvents := int(argFloat(req, "max_events", 10))
@@ -440,7 +445,7 @@ func handlerToolPing(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		if interval != "" && strings.TrimSpace(interval) == "" {
 			return nil, fmt.Errorf("interval is required")
 		}
-		if _, ok := req.Params.Arguments["packet_size"]; ok && packetSize < 1 {
+		if _, ok := argMap(req)["packet_size"]; ok && packetSize < 1 {
 			return nil, fmt.Errorf("packet_size must be at least 1")
 		}
 
@@ -508,7 +513,7 @@ func handlerToolTraceroute(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		if interval != "" && strings.TrimSpace(interval) == "" {
 			return nil, fmt.Errorf("interval is required")
 		}
-		if _, ok := req.Params.Arguments["packet_size"]; ok && packetSize < 1 {
+		if _, ok := argMap(req)["packet_size"]; ok && packetSize < 1 {
 			return nil, fmt.Errorf("packet_size must be at least 1")
 		}
 
@@ -705,11 +710,11 @@ func handlerHealthcheck(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		// --- Config info ---
 		config := map[string]any{
 			"api_credentials_configured": cl.Host() != "" && os.Getenv("MIKROTIK_USER") != "",
-			"api_passwordless_enabled":  helpers.ParseBool(os.Getenv("MIKROTIK_API_PASSWORDLESS_ENABLED"), false),
-			"api_host":                  cl.Host(),
-			"api_port":                  cl.Port(),
-			"api_tls":                   cl.UseSSL(),
-			"resolved_scp_host":         os.Getenv("MIKROTIK_SCP_HOST"),
+			"api_passwordless_enabled":   helpers.ParseBool(os.Getenv("MIKROTIK_API_PASSWORDLESS_ENABLED"), false),
+			"api_host":                   cl.Host(),
+			"api_port":                   cl.Port(),
+			"api_tls":                    cl.UseSSL(),
+			"resolved_scp_host":          os.Getenv("MIKROTIK_SCP_HOST"),
 			"scp_credentials_configured": os.Getenv("MIKROTIK_SCP_USER") != "" || os.Getenv("MIKROTIK_USER") != "",
 		}
 		if scpKey, keyErr := hcResolveSCPPrivateKeyPath(); keyErr != nil {
@@ -853,9 +858,9 @@ func probePasswordless(cl *client.RouterOSClient, scpResult map[string]any) map[
 	pwdEnabled := helpers.ParseBool(os.Getenv("MIKROTIK_API_PASSWORDLESS_ENABLED"), false)
 	if !pwdEnabled {
 		return map[string]any{
-			"ok":     true,
-			"status": "skipped",
-			"code":   "passwordless.disabled",
+			"ok":      true,
+			"status":  "skipped",
+			"code":    "passwordless.disabled",
 			"message": "Passwordless startup rotation is disabled",
 		}
 	}
@@ -876,20 +881,20 @@ func probePasswordless(cl *client.RouterOSClient, scpResult map[string]any) map[
 
 	if scpAuthMode != "key" {
 		return map[string]any{
-			"ok":     false,
-			"status": "failed",
-			"code":   "passwordless.key_required",
-			"message": "MIKROTIK_SCP_PRIVATE_KEY must be set when API passwordless startup rotation is enabled",
+			"ok":          false,
+			"status":      "failed",
+			"code":        "passwordless.key_required",
+			"message":     "MIKROTIK_SCP_PRIVATE_KEY must be set when API passwordless startup rotation is enabled",
 			"duration_ms": time.Since(startedAt).Milliseconds(),
 		}
 	}
 
 	if !scpOK {
 		return map[string]any{
-			"ok":     false,
-			"status": "failed",
-			"code":   "passwordless.ssh_unavailable",
-			"message": fmt.Sprintf("SSH bootstrap is unavailable: %v", scpResult["message"]),
+			"ok":          false,
+			"status":      "failed",
+			"code":        "passwordless.ssh_unavailable",
+			"message":     fmt.Sprintf("SSH bootstrap is unavailable: %v", scpResult["message"]),
 			"duration_ms": time.Since(startedAt).Milliseconds(),
 		}
 	}
@@ -898,20 +903,20 @@ func probePasswordless(cl *client.RouterOSClient, scpResult map[string]any) map[
 	probe, err := hcCheckPasswordRotationReady(cl.Host(), targetUser)
 	if err != nil {
 		return map[string]any{
-			"ok":     false,
-			"status": "failed",
-			"code":   "passwordless.exec_failed",
-			"message": err.Error(),
+			"ok":          false,
+			"status":      "failed",
+			"code":        "passwordless.exec_failed",
+			"message":     err.Error(),
 			"duration_ms": time.Since(startedAt).Milliseconds(),
 		}
 	}
 
 	return map[string]any{
-		"ok":     true,
-		"status": "ok",
-		"code":   "passwordless.ok",
-		"message": fmt.Sprintf("Passwordless startup rotation SSH command succeeded for %s:%d", probe["host"], probe["port"]),
-		"probe": probe,
+		"ok":          true,
+		"status":      "ok",
+		"code":        "passwordless.ok",
+		"message":     fmt.Sprintf("Passwordless startup rotation SSH command succeeded for %s:%d", probe["host"], probe["port"]),
+		"probe":       probe,
 		"duration_ms": time.Since(startedAt).Milliseconds(),
 	}
 }

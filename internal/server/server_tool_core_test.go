@@ -65,6 +65,7 @@ func TestIntegrationToolPingReturnsRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+	assertStructuredContent(t, result)
 	if !containsAll(resultText(result), "10.0.0.1") {
 		t.Errorf("missing ping target: %s", resultText(result))
 	}
@@ -158,6 +159,7 @@ func TestIntegrationDNSResolveReturnsResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+	assertStructuredContent(t, result)
 	if !containsAll(resultText(result), "10.0.0.1") {
 		t.Errorf("missing resolved address: %s", resultText(result))
 	}
@@ -219,6 +221,7 @@ func TestIntegrationInterfaceMonitorReturnsFirstRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
+	assertStructuredContent(t, result)
 	if !containsAll(resultText(result), "1000000") {
 		t.Errorf("missing rx rate: %s", resultText(result))
 	}

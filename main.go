@@ -4,9 +4,9 @@ import (
 	"flag"
 	"log"
 
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/Delnegend/mikrotik-mcp/internal/runtime"
 	mcpserver "github.com/Delnegend/mikrotik-mcp/internal/server"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func main() {

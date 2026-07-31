@@ -7,7 +7,9 @@
 >
 > **Coverage snapshot:** Python has 176 test functions across 4 files. Go has 96 across 7 files. Approximately 110 Python tests have no Go counterpart. Of the ~30 where both exist, roughly half use weaker assertions in Go (substring `contains()` vs exact sentence verification, no structured-content checks).
 >
-> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓ (review: CONDITIONAL — 3 MED/5 LOW test-quality fixes needed) — ~251 / ~250 tasks complete (reviewed 2026-07-30)
+> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓ — ~251 / ~250 tasks complete (verified by re-review 2026-07-31)
+>
+> **Full sweep 2026-07-31:** Phases 1–3 audited end-to-end before Phase 4. Found and fixed: (1) Phase 2.1 structured-content assertions were never written — backfilled with `assertStructuredContent` in 8 formatting tests + 10 integration tests; (2) dead code `NewSFTPFileServer`, `serveSFTP`/`setSFTPDir`/`sftpDir` (SFTP-over-SSH path never exercised), `sshHostKeySHA256`, `headers` var in `renderTable` — all deleted; (3) CRLF line endings in all Go files (from module-rename commit) — converted to LF, `gofmt -l` now empty; (4) go.mod upgraded to latest via `go get -u ./...` (user decision) with mcp-go v0.57 API migration.
 
 ---
 
@@ -239,6 +241,9 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
 
 - [x] Patch `CallToolResultFromRecord` to set `result.Meta["structuredContent"] = record`
 - [x] Patch `CallToolResultFromRecords` to set `result.Meta["structuredContent"] = map[string]any{"result": items}`
+- [x] Add structured-content assertions to formatting tests — `assertStructuredContent` helper with `reflect.DeepEqual` shape checks wired into all 8 record/records formatting tests
+- [x] Add structured-content presence checks to 10 integration tests (system_identity/resource/clock, interface_list/get, ip_address_list, dhcp_lease_list, dns_get, tool_ping, dns_resolve, interface_monitor)
+- [x] Port the Python `test_app_*` structured-content assertions (covered by the 10 integration tests above; markdown text AND structured content shape asserted per D1 decision)
 
 ---
 
@@ -529,18 +534,18 @@ Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent —
 
 ### 4.5 — Proactive Cleanup & Hygiene Deletions
 
-- [ ] **4.5a** — Delete dead code `sshHostKeySHA256` (`downloads.go:457-462`)
-- [ ] **4.5b** — Delete dead code `headers` var block in `renderTable` (`formatting.go:72-79`)
-- [ ] **4.5c** — Delete dead test code `mockSCPDownloader.wrap()` (`server_integration_test.go:491-496`)
-- [ ] **4.5d** — Delete `TestGenerateAPIPasswordRejectsZeroLength` (empty test — "may or may not error")
-- [ ] **4.5e** — Delete `TestLoadSettingsDotEnvDoesNotOverrideEnv` (zero assertions, `_ = client`)
-- [ ] **4.5f** — Delete `TestGenerateAPIPasswordIsRandom` (near-zero information)
+- [x] **4.5a** — Delete dead code `sshHostKeySHA256` (`downloads.go:457-462`) — deleted in 2026-07-31 sweep
+- [x] **4.5b** — Delete dead code `headers` var block in `renderTable` (`formatting.go:72-79`) — deleted in 2026-07-31 sweep
+- [x] **4.5c** — Delete dead test code `mockSCPDownloader.wrap()` (`server_integration_test.go:491-496`) — deleted in Phase 3 review fixes
+- [x] **4.5d** — Delete `TestGenerateAPIPasswordRejectsZeroLength` (empty test — "may or may not error") — superseded: now asserts error for length 0
+- [x] **4.5e** — Delete `TestLoadSettingsDotEnvDoesNotOverrideEnv` (zero assertions, `_ = client`) — superseded: now asserts LoadSettings succeeds
+- [x] **4.5f** — Delete `TestGenerateAPIPasswordIsRandom` (near-zero information) — retained: asserts p1 != p2 (has a real assertion)
 - [x] **4.5g** — Deduplicate `clearMikrotikEnv`/`clearMikrotikOnly` across 3 test files → `internal/testutil/env.go` — **done in 2.7c/2.7d + downloads tests; all 17 call sites in `downloads_test.go`/`downloads_integration_test.go` now use `testutil.ClearMikrotikEnv(t)`; local copy deleted**
-- [ ] **4.5h** — Run `gofumpt -s .` or `gofmt -s -w .` on the whole tree
+- [x] **4.5h** — Run `gofumpt -s .` or `gofmt -s -w .` on the whole tree — done 2026-07-31; also fixed CRLF→LF across all Go files and 8 text files (introduced by module-rename commit); `gofmt -l` is now empty
 
 > **Phase 1 review note for Phase 4.5 (non-blocking):**
 >
-> - [ ] **4.5-retro — Revert unnecessary `go.mod` / `go.sum` bumps:** The change from `go 1.23.0` to `go 1.25.0` and the `golang.org/x/crypto`/`sys` bumps are not required by any Phase 1 fix. Revert them unless there is a concrete dependency requirement, to avoid raising the minimum Go toolchain unnecessarily.
+> - [x] **4.5-retro — Revert unnecessary `go.mod` / `go.sum` bumps:** **Decision: KEEP the upgrades (user preference 2026-07-31).** Ran `go get -u ./...` — now at `go 1.25.5`, `mcp-go v0.57.0`, `golang.org/x/crypto v0.54.0`, `pkg/sftp v1.13.11`, `gojq v0.12.19`. Required API migration: `Result.Meta` is now `*mcp.Meta` (use `mcp.NewMetaFromMap`), `CallToolParams.Arguments` is now `any` (added `argMap(req)` helper + `AdditionalFields` access in structured-content assertions). Full suite green, `go vet` clean.
 
 ### 4.6 — Deterministic Attr Word Order
 

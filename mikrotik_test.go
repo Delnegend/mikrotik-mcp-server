@@ -25,7 +25,7 @@ func TestBinaryRunsAsStdioMCPServer(t *testing.T) {
 	defer os.Remove(binary)
 
 	// Launch the binary as a subprocess with stdio pipes
-	cmd := exec.Command("./" + binary, "192.168.88.1")
+	cmd := exec.Command("./"+binary, "192.168.88.1")
 	cmd.Env = append(os.Environ(),
 		"MIKROTIK_USER=test-user",
 		"MIKROTIK_PASSWORD=test-pass",

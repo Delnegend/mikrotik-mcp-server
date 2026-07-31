@@ -8,13 +8,7 @@ import (
 
 func TestArgString(t *testing.T) {
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string         "json:\"name\""
-			Arguments map[string]any "json:\"arguments,omitempty\""
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken "json:\"progressToken,omitempty\""
-			} "json:\"_meta,omitempty\""
-		}{
+		Params: mcp.CallToolParams{
 			Name: "test",
 			Arguments: map[string]any{
 				"foo": "bar",
@@ -36,13 +30,7 @@ func TestArgString(t *testing.T) {
 
 func TestArgBool(t *testing.T) {
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string         "json:\"name\""
-			Arguments map[string]any "json:\"arguments,omitempty\""
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken "json:\"progressToken,omitempty\""
-			} "json:\"_meta,omitempty\""
-		}{
+		Params: mcp.CallToolParams{
 			Name: "test",
 			Arguments: map[string]any{
 				"enabled":  true,
@@ -64,13 +52,7 @@ func TestArgBool(t *testing.T) {
 
 func TestArgBoolNullable(t *testing.T) {
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string         "json:\"name\""
-			Arguments map[string]any "json:\"arguments,omitempty\""
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken "json:\"progressToken,omitempty\""
-			} "json:\"_meta,omitempty\""
-		}{
+		Params: mcp.CallToolParams{
 			Name: "test",
 			Arguments: map[string]any{
 				"enabled":  true,
@@ -92,13 +74,7 @@ func TestArgBoolNullable(t *testing.T) {
 
 func TestArgFloat(t *testing.T) {
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string         "json:\"name\""
-			Arguments map[string]any "json:\"arguments,omitempty\""
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken "json:\"progressToken,omitempty\""
-			} "json:\"_meta,omitempty\""
-		}{
+		Params: mcp.CallToolParams{
 			Name: "test",
 			Arguments: map[string]any{
 				"count": float64(5),
@@ -116,13 +92,7 @@ func TestArgFloat(t *testing.T) {
 
 func TestArgStringSlice(t *testing.T) {
 	req := mcp.CallToolRequest{
-		Params: struct {
-			Name      string         "json:\"name\""
-			Arguments map[string]any "json:\"arguments,omitempty\""
-			Meta      *struct {
-				ProgressToken mcp.ProgressToken "json:\"progressToken,omitempty\""
-			} "json:\"_meta,omitempty\""
-		}{
+		Params: mcp.CallToolParams{
 			Name: "test",
 			Arguments: map[string]any{
 				"items": []any{"a", "b", "c"},

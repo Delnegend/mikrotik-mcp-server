@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
 	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // fileDownloader is satisfied by *downloads.SCPFileDownloader
@@ -275,14 +275,14 @@ func backupCollectHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 
 		result := map[string]any{
-			"success":             true,
-			"created_at":          timestamp,
-			"router_backup_path":  routerBackupPath,
-			"router_export_path":  routerExportPath,
-			"local_backup_path":   localBackup,
-			"local_export_path":   localExport,
-			"include_sensitive":   includeSensitive,
-			"compact":             compact,
+			"success":            true,
+			"created_at":         timestamp,
+			"router_backup_path": routerBackupPath,
+			"router_export_path": routerExportPath,
+			"local_backup_path":  localBackup,
+			"local_export_path":  localExport,
+			"include_sensitive":  includeSensitive,
+			"compact":            compact,
 		}
 		return mcp.NewToolResultText(helpers.JSONCompact(result)), nil
 	}

@@ -18,6 +18,7 @@ func TestIntegrationSystemIdentityGet(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 	if !strings.Contains(resultText(result), "my-router") {
 		t.Error("missing router name")
 	}
@@ -33,6 +34,7 @@ func TestIntegrationSystemResourceGet(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 	text := resultText(result)
 	if !strings.Contains(text, "RouterOS 7.17, uptime 1d2h") {
 		t.Errorf("missing resource summary: %s", text)
@@ -52,6 +54,7 @@ func TestIntegrationSystemClockGet(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 	text := resultText(result)
 	if !strings.Contains(text, "Jul/25/2026") || !strings.Contains(text, "10:30:00") {
 		t.Errorf("missing clock data: %s", text)
@@ -72,6 +75,7 @@ func TestIntegrationInterfaceList(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 	text := resultText(result)
 	if !strings.Contains(text, "ether1") || !strings.Contains(text, "ether2") {
 		t.Errorf("missing interfaces: %s", text)
@@ -88,6 +92,7 @@ func TestIntegrationInterfaceGetSuccess(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 	if !strings.Contains(resultText(result), "ether1") {
 		t.Error("missing interface name")
 	}
@@ -117,6 +122,7 @@ func TestIntegrationIPAddressList(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 	text := resultText(result)
 	if !strings.Contains(text, "192.168.1.1/24") {
 		t.Errorf("missing address: %s", text)
@@ -136,6 +142,7 @@ func TestIntegrationDHCPLeaseList(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 }
 
 func TestIntegrationDHCPLeaseListActiveOnly(t *testing.T) {
@@ -164,6 +171,7 @@ func TestIntegrationDNSGet(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
+	assertStructuredContent(t, result)
 	if !strings.Contains(resultText(result), "1.1.1.1") {
 		t.Errorf("missing DNS servers: %s", resultText(result))
 	}

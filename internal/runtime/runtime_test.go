@@ -106,8 +106,6 @@ func TestGenerateAPIPassword(t *testing.T) {
 	}
 }
 
-
-
 // TestLoadSettingsMapsEnvVars verifies that all env vars are correctly mapped
 // to client settings by LoadSettings.
 func TestLoadSettingsMapsEnvVars(t *testing.T) {
@@ -440,5 +438,3 @@ func TestRotateStartupAPIPasswordUsesRequestedLength(t *testing.T) {
 		t.Errorf("rotation called with host=%q user=%q, want router.test/admin", gotHost, gotUser)
 	}
 }
-
-

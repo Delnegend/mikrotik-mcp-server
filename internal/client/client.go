@@ -21,8 +21,8 @@ import (
 )
 
 var (
-	ErrRouterOSFatalError    = errors.New("routeros: fatal error")
-	ErrRouterOSAuthError     = errors.New("routeros: auth error")
+	ErrRouterOSFatalError     = errors.New("routeros: fatal error")
+	ErrRouterOSAuthError      = errors.New("routeros: auth error")
 	ErrRouterOSTransportError = errors.New("routeros: transport error")
 )
 
@@ -681,7 +681,7 @@ func (c *RouterOSClient) generateTag(prefix string) string {
 
 func (c *RouterOSClient) Host() string { return c.host }
 func (c *RouterOSClient) Port() int    { return c.port }
-func (c *RouterOSClient) UseSSL() bool  { return c.useSSL }
+func (c *RouterOSClient) UseSSL() bool { return c.useSSL }
 
 // TLSSessionInfo returns TLS session details for the connection.
 func (c *RouterOSClient) TLSSessionInfo() map[string]any {

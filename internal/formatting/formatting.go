@@ -21,7 +21,7 @@ func CallToolResultFromRecords(title string, items []map[string]any, summaryNoun
 
 	text := strings.Join(lines, "\n")
 	result := mcp.NewToolResultText(text)
-	result.Meta = map[string]any{"structuredContent": map[string]any{"result": items}}
+	result.Meta = mcp.NewMetaFromMap(map[string]any{"structuredContent": map[string]any{"result": items}})
 	return result, nil
 }
 
@@ -31,7 +31,7 @@ func CallToolResultFromRecord(title, summary string, record map[string]any, pref
 
 	text := strings.Join(lines, "\n")
 	result := mcp.NewToolResultText(text)
-	result.Meta = map[string]any{"structuredContent": record}
+	result.Meta = mcp.NewMetaFromMap(map[string]any{"structuredContent": record})
 	return result, nil
 }
 
@@ -73,15 +73,6 @@ func renderKeyValueTable(record map[string]any, preferredFields []string) []stri
 }
 
 func renderTable(items []map[string]any, columns [][2]string) []string {
-	headers := [2]string{}
-	for i, c := range columns {
-		if i == 0 {
-			headers[0] = c[1]
-		} else {
-			headers[1] = c[1]
-		}
-	}
-
 	var headerSlice []string
 	for _, c := range columns {
 		headerSlice = append(headerSlice, c[1])
@@ -190,7 +181,7 @@ func FormatHealthcheckResult(title string, data map[string]any, preferredFields 
 
 	text := strings.Join(lines, "\n")
 	result := mcp.NewToolResultText(text)
-	result.Meta = map[string]any{"structuredContent": data}
+	result.Meta = mcp.NewMetaFromMap(map[string]any{"structuredContent": data})
 	return result, nil
 }
 
