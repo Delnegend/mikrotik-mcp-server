@@ -21,6 +21,9 @@ import (
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
 )
 
+var SSHDial = ssh.Dial
+var NewSFTPClient = sftp.NewClient
+
 type FileTransferSettings struct {
 	Host                 string
 	Username             string
@@ -48,7 +51,7 @@ func (d *SCPFileDownloader) CheckConnection() (map[string]any, error) {
 	}
 	defer sshClient.Close()
 
-	sftpClient, err := sftp.NewClient(sshClient)
+	sftpClient, err := NewSFTPClient(sshClient)
 	if err != nil {
 		return nil, fmt.Errorf("connected to SCP service but directory probe failed: %v", err)
 	}
@@ -94,7 +97,7 @@ func (d *SCPFileDownloader) DownloadFile(routerPath, localPath string) error {
 	}
 	defer sshClient.Close()
 
-	sftpClient, err := sftp.NewClient(sshClient)
+	sftpClient, err := NewSFTPClient(sshClient)
 	if err != nil {
 		return fmt.Errorf("failed to open SFTP session: %v", err)
 	}
@@ -125,7 +128,7 @@ func (d *SCPFileDownloader) connect() (*ssh.Client, error) {
 	}
 
 	addr := net.JoinHostPort(d.settings.Host, strconv.Itoa(d.settings.Port))
-	return ssh.Dial("tcp", addr, config)
+	return SSHDial("tcp", addr, config)
 }
 
 func (d *SCPFileDownloader) authMethods() []ssh.AuthMethod {
@@ -336,7 +339,7 @@ func connectSSH(settings *FileTransferSettings) (*ssh.Client, error) {
 	}
 
 	addr := net.JoinHostPort(settings.Host, strconv.Itoa(settings.Port))
-	return ssh.Dial("tcp", addr, config)
+	return SSHDial("tcp", addr, config)
 }
 
 func runSSHCommand(client *ssh.Client, command string, timeout time.Duration) (string, error) {
@@ -389,7 +392,7 @@ func ProbeSSHFingerprint(host string, port int, timeout time.Duration) (map[stri
 		},
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	client, err := ssh.Dial("tcp", addr, config)
+	client, err := SSHDial("tcp", addr, config)
 	if err != nil {
 		return map[string]any{
 			"status":  "failed",
@@ -466,6 +469,10 @@ func sshHostKeySHA256(key ssh.PublicKey) string {
 	encoded := base64.StdEncoding.EncodeToString(hash[:])
 	encoded = strings.TrimRight(encoded, "=")
 	return "SHA256:" + encoded
+}
+
+func NewSFTPFileServer(conn net.Conn, rootDir string) (*sftp.Server, error) {
+	return sftp.NewServer(conn, sftp.WithServerWorkingDirectory(rootDir))
 }
 
 func shellQuote(s string) string {

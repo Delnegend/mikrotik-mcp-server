@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
 )
 
 func TestNormalizeSSHFingerprint(t *testing.T) {
@@ -46,7 +48,7 @@ func TestNormalizeSSHFingerprintRejectsInvalid(t *testing.T) {
 }
 
 func TestLoadFileTransferSettingsFallsBackToAPICredentials(t *testing.T) {
-	clearMikrotikEnv()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 	os.Setenv("MIKROTIK_API_SSL", "true")
@@ -67,7 +69,7 @@ func TestLoadFileTransferSettingsFallsBackToAPICredentials(t *testing.T) {
 }
 
 func TestLoadFileTransferSettingsUsesSCPOverrides(t *testing.T) {
-	clearMikrotikEnv()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "api-user")
 	os.Setenv("MIKROTIK_PASSWORD", "api-pass")
 	os.Setenv("MIKROTIK_SCP_HOST", "files.router.test")
@@ -98,7 +100,7 @@ func TestLoadFileTransferSettingsUsesSCPOverrides(t *testing.T) {
 }
 
 func TestLoadFileTransferSettingsRequiresCredentials(t *testing.T) {
-	clearMikrotikEnv()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_SCP_USER", "mcprw")
 
 	_, err := LoadFileTransferSettings("router.test")
@@ -115,7 +117,7 @@ func TestResolveSCPPrivateKeyPath(t *testing.T) {
 	}
 	defer os.Remove(keyPath)
 
-	clearMikrotikEnv()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_SCP_PRIVATE_KEY", keyPath)
 
 	result, err := ResolveSCPPrivateKeyPath()
@@ -127,23 +129,8 @@ func TestResolveSCPPrivateKeyPath(t *testing.T) {
 	}
 }
 
-// clearMikrotikEnv unsets only MIKROTIK_* env vars without clearing TEMP/TMP
-func clearMikrotikEnv() {
-	for _, env := range os.Environ() {
-		for i := 0; i < len(env); i++ {
-			if env[i] == '=' {
-				key := env[:i]
-				if len(key) >= 9 && key[:9] == "MIKROTIK_" {
-					os.Unsetenv(key)
-				}
-				break
-			}
-		}
-	}
-}
-
 func TestResolveSCPPrivateKeyPathMissing(t *testing.T) {
-	clearMikrotikEnv()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_SCP_PRIVATE_KEY", "/nonexistent/path/key")
 
 	_, err := ResolveSCPPrivateKeyPath()
@@ -156,7 +143,7 @@ func TestResolveSCPPrivateKeyPathMissing(t *testing.T) {
 }
 
 func TestResolveSCPPrivateKeyPathUnset(t *testing.T) {
-	clearMikrotikEnv()
+	testutil.ClearMikrotikEnv(t)
 	result, err := ResolveSCPPrivateKeyPath()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -167,7 +154,7 @@ func TestResolveSCPPrivateKeyPathUnset(t *testing.T) {
 }
 
 func TestLoadPasswordRotationSettingsRequiresPrivateKey(t *testing.T) {
-	clearMikrotikEnv()
+	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
 	os.Setenv("MIKROTIK_PASSWORD", "secret")
 

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -351,6 +352,92 @@ func TestGenerateAPIPasswordRejectsZeroLength(t *testing.T) {
 	_, err := GenerateAPIPassword(0)
 	if err == nil {
 		t.Error("expected error for length 0")
+	}
+}
+
+func TestLoadSettingsRotatesPasswordWhenPasswordlessEnabled(t *testing.T) {
+	origRotate := rotateStartupAPIPassword
+	rotateStartupAPIPassword = func(host, username string) (string, error) {
+		return "rotated-api-password", nil
+	}
+	defer func() { rotateStartupAPIPassword = origRotate }()
+
+	testutil.ClearMikrotikEnv(t)
+	os.Setenv("MIKROTIK_USER", "admin")
+	os.Setenv("MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+	os.Setenv("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:valid-key")
+
+	cl, err := LoadSettings("router.test")
+	if err != nil {
+		t.Fatalf("LoadSettings error: %v", err)
+	}
+	if cl == nil {
+		t.Fatal("LoadSettings returned nil client")
+	}
+	if state := startupPasswordlessState(); state["status"] != "" {
+		t.Errorf("passwordless state should be cleared after successful rotation, got: %v", state)
+	}
+}
+
+func TestLoadSettingsRequiresFingerprintWhenPasswordlessEnabled(t *testing.T) {
+	testutil.ClearMikrotikEnv(t)
+	os.Setenv("MIKROTIK_USER", "admin")
+	os.Setenv("MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+
+	_, err := LoadSettings("router.test")
+	if err == nil {
+		t.Fatal("expected error when fingerprint is missing")
+	}
+	if !strings.Contains(err.Error(), "MIKROTIK_SCP_HOST_FINGERPRINT_SHA256 must be set") {
+		t.Errorf("error = %q", err.Error())
+	}
+}
+
+func TestLoadSettingsRaisesWhenStartupRotationFails(t *testing.T) {
+	origRotate := rotateStartupAPIPassword
+	rotateStartupAPIPassword = func(host, username string) (string, error) {
+		return "", fmt.Errorf("boom")
+	}
+	defer func() { rotateStartupAPIPassword = origRotate }()
+
+	testutil.ClearMikrotikEnv(t)
+	os.Setenv("MIKROTIK_USER", "admin")
+	os.Setenv("MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+	os.Setenv("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:valid-key")
+
+	_, err := LoadSettings("router.test")
+	if err == nil {
+		t.Fatal("expected error when rotation fails")
+	}
+	if !strings.Contains(err.Error(), "startup password rotation failed") {
+		t.Errorf("error should wrap rotation failure: %q", err.Error())
+	}
+}
+
+func TestRotateStartupAPIPasswordUsesRequestedLength(t *testing.T) {
+	origRotate := rotateStartupAPIPassword
+	var gotHost, gotUser string
+	rotateStartupAPIPassword = func(host, username string) (string, error) {
+		gotHost, gotUser = host, username
+		return "fixed-password", nil
+	}
+	defer func() { rotateStartupAPIPassword = origRotate }()
+
+	testutil.ClearMikrotikEnv(t)
+	os.Setenv("MIKROTIK_USER", "admin")
+	os.Setenv("MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
+	os.Setenv("MIKROTIK_API_PASSWORDLESS_LENGTH", "40")
+	os.Setenv("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:valid-key")
+
+	cl, err := LoadSettings("router.test")
+	if err != nil {
+		t.Fatalf("LoadSettings error: %v", err)
+	}
+	if cl == nil {
+		t.Fatal("LoadSettings returned nil client")
+	}
+	if gotHost != "router.test" || gotUser != "admin" {
+		t.Errorf("rotation called with host=%q user=%q, want router.test/admin", gotHost, gotUser)
 	}
 }
 

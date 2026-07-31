@@ -1,0 +1,287 @@
+package server
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/Delnegend/mikrotik-mcp/internal/client"
+	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
+)
+
+// Ping, traceroute, DNS resolve, and interface monitor use Isolated().
+// These tests inject client.NetDial to return the fake conn.
+
+func TestIntegrationResourceListenPayload(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(
+		enc("!done"), enc("!re", ".tag=listen-1", "=name=ether1"),
+		enc("!done"), enc("!done", ".tag=listen-1", "=ret=interrupted"),
+	)
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerResourceListen(cl)(ctx(), testutil.MkReq("resource_listen", "menu", "/interface", "max_events", float64(1), "tag", "listen-1"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	text := resultText(result)
+	if !containsAll(text, "tag=listen-1", "events=1") {
+		t.Errorf("unexpected result: %s", text)
+	}
+}
+
+func TestIntegrationCommandRun(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done", "=ret=ok"))
+	cl.SetConn(fc)
+	_, err := handlerCommandRun(cl)(ctx(), testutil.MkReq("command_run", "command", "/system/backup/save", "attributes", map[string]any{"name": "test"}))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	assertSent(t, fc, "/system/backup/save")
+}
+
+func TestIntegrationCommandCancel(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"))
+	cl.SetConn(fc)
+	_, err := handlerCommandCancel(cl)(ctx(), testutil.MkReq("command_cancel", "tag", "test-tag"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	assertSent(t, fc, "/cancel")
+	assertSent(t, fc, "=tag=test-tag")
+}
+
+func TestIntegrationToolPingReturnsRecords(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!re", "=seq=1", "=host=10.0.0.1", "=time=5ms", "=status=reachable"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerToolPing(cl)(ctx(), testutil.MkReq("tool_ping", "address", "10.0.0.1", "count", float64(1)))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !containsAll(resultText(result), "10.0.0.1") {
+		t.Errorf("missing ping target: %s", resultText(result))
+	}
+}
+
+func TestIntegrationToolPingDoneOnly(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerToolPing(cl)(ctx(), testutil.MkReq("tool_ping", "address", "10.0.0.1", "count", float64(1)))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !containsAll(resultText(result), "0 probes") {
+		t.Errorf("expected '0 probes': %s", resultText(result))
+	}
+}
+
+func TestIntegrationToolPingPropagatesErrors(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!trap", "=message=network unreachable"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	_, err := handlerToolPing(cl)(ctx(), testutil.MkReq("tool_ping", "address", "10.0.0.1"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "network unreachable") {
+		t.Errorf("error should propagate router trap: %v", err)
+	}
+}
+
+func TestIntegrationToolTracerouteReturnsRecords(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!re", "=hop=1", "=host=10.0.0.1", "=status=reachable"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerToolTraceroute(cl)(ctx(), testutil.MkReq("tool_traceroute", "address", "10.0.0.1"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !containsAll(resultText(result), "10.0.0.1") {
+		t.Errorf("missing traceroute target: %s", resultText(result))
+	}
+}
+
+func TestIntegrationToolTracerouteDoneOnly(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	_, err := handlerToolTraceroute(cl)(ctx(), testutil.MkReq("tool_traceroute", "address", "10.0.0.1"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+}
+
+func TestIntegrationToolTraceroutePropagatesErrors(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!trap", "=message=no route to host"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	_, err := handlerToolTraceroute(cl)(ctx(), testutil.MkReq("tool_traceroute", "address", "10.0.0.1"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "no route to host") {
+		t.Errorf("error should propagate router trap: %v", err)
+	}
+}
+
+func TestIntegrationDNSResolveReturnsResult(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!done", "=ret=10.0.0.1"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerDNSResolve(cl)(ctx(), testutil.MkReq("dns_resolve", "name", "test.example.com", "server", "8.8.8.8"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !containsAll(resultText(result), "10.0.0.1") {
+		t.Errorf("missing resolved address: %s", resultText(result))
+	}
+}
+
+func TestIntegrationDNSResolveRequiresName(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	_, err := handlerDNSResolve(cl)(ctx(), testutil.MkReq("dns_resolve"))
+	if err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestIntegrationDNSResolvePropagatesErrors(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!trap", "=message=dns server failure"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	_, err := handlerDNSResolve(cl)(ctx(), testutil.MkReq("dns_resolve", "name", "test.example.com"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestIntegrationDNSResolveRequiresAddress(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!done", "=ret="))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerDNSResolve(cl)(ctx(), testutil.MkReq("dns_resolve", "name", "test.example.com"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected IsError when resolve returns empty address")
+	}
+	if !strings.Contains(resultText(result), "did not return an address") {
+		t.Errorf("unexpected error message: %s", resultText(result))
+	}
+}
+
+func TestIntegrationInterfaceMonitorReturnsFirstRecord(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!re", "=name=ether1", "=rx-bits-per-second=1000000", "=tx-bits-per-second=500000"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerInterfaceMonitor(cl)(ctx(), testutil.MkReq("interface_monitor", "name", "ether1"))
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !containsAll(resultText(result), "1000000") {
+		t.Errorf("missing rx rate: %s", resultText(result))
+	}
+}
+
+func TestIntegrationInterfaceMonitorRequiresName(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	_, err := handlerInterfaceMonitor(cl)(ctx(), testutil.MkReq("interface_monitor"))
+	if err == nil {
+		t.Fatal("expected error for empty name")
+	}
+}
+
+func TestIntegrationInterfaceMonitorNoResult(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerInterfaceMonitor(cl)(ctx(), testutil.MkReq("interface_monitor", "name", "nonexistent"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsAll(resultText(result), "nonexistent") {
+		t.Errorf("expected name in output: %s", resultText(result))
+	}
+}
+
+func TestIntegrationInterfaceMonitorAcceptsSingleDict(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	// !done with attrs → normalizeMutationResult returns a single map
+	fc := newFakeConn(enc("!done"), enc("!done", "=rx-bits-per-second=42"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	result, err := handlerInterfaceMonitor(cl)(ctx(), testutil.MkReq("interface_monitor", "name", "ether1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !containsAll(resultText(result), "ether1") {
+		t.Errorf("expected name in output: %s", resultText(result))
+	}
+}
+
+func TestIntegrationInterfaceMonitorPropagatesErrors(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"), enc("!trap", "=message=interface not found"), enc("!done"))
+	origDial := client.NetDial
+	client.NetDial = fc.Dialer()
+	defer func() { client.NetDial = origDial }()
+
+	_, err := handlerInterfaceMonitor(cl)(ctx(), testutil.MkReq("interface_monitor", "name", "nonexistent"))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "interface not found") {
+		t.Errorf("error should propagate router trap: %v", err)
+	}
+}

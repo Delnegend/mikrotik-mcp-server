@@ -159,7 +159,7 @@ func resolveStartupAPIPassword(host, username string) (string, error) {
 	return password, nil
 }
 
-func rotateStartupAPIPassword(host, username string) (string, error) {
+var rotateStartupAPIPassword = func(host, username string) (string, error) {
 	return downloads.RotateRouterOSPassword(host, username)
 }
 

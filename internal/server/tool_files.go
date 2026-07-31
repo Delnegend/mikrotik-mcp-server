@@ -13,10 +13,15 @@ import (
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
 )
 
+// fileDownloader is satisfied by *downloads.SCPFileDownloader
+type fileDownloader interface {
+	DownloadFile(routerPath, localPath string) error
+}
+
 // Package-level variables for file tool dependencies, swappable in tests.
 var (
 	ftLoadFileTransferSettings = downloads.LoadFileTransferSettings
-	ftNewSCPFileDownloader     = func(s *downloads.FileTransferSettings) *downloads.SCPFileDownloader {
+	ftNewSCPFileDownloader     = func(s *downloads.FileTransferSettings) fileDownloader {
 		return downloads.NewSCPFileDownloader(s)
 	}
 )
@@ -53,7 +58,40 @@ func registerFileTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("directory", mcp.Description("Filter by directory")),
 		mcp.WithString("name", mcp.Description("Filter by file name")),
 		mcp.WithString("file_type", mcp.Description("Filter by file type (e.g. script, backup, export)")),
-	), filteredListHandler(cl, "/file", map[string]string{"name": "name", "file_type": "type"}))
+	), fileListHandler(cl))
+}
+
+func fileListHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		directory := argString(req, "directory", "")
+		name := argString(req, "name", "")
+		fileType := argString(req, "file_type", "")
+
+		var queries []string
+		if name != "" {
+			queries = append(queries, "name="+name)
+		}
+		if fileType != "" {
+			queries = append(queries, "type="+fileType)
+		}
+
+		items, err := helpers.PrintRecords(cl, "/file", nil, queries, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		if directory != "" {
+			filtered := items[:0]
+			for _, f := range items {
+				if helpers.FileExistsInDirectory(f["name"], directory) {
+					filtered = append(filtered, f)
+				}
+			}
+			items = filtered
+		}
+
+		return mcp.NewToolResultText(helpers.JSONCompact(items)), nil
+	}
 }
 
 func backupSaveHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {
@@ -165,8 +203,19 @@ func backupCollectHandler(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		routerSlug := helpers.SafeNameComponent(cl.Host(), "router")
 		backupName := fmt.Sprintf("backups/%s-%s", prefix, timestamp)
 
+		// Ensure the backups directory exists on the router
+		existing, err := helpers.PrintRecords(cl, "/file", nil, []string{"name=backups"}, nil)
+		if err != nil {
+			return nil, err
+		}
+		if len(existing) == 0 {
+			if _, err := cl.Add("/file", map[string]any{"name": "backups", "type": "directory"}); err != nil {
+				return nil, fmt.Errorf("failed to create backups directory on router: %v", err)
+			}
+		}
+
 		normalized, _ := helpers.NormalizeGeneratedName(backupName, ".backup", "name")
-		_, err := cl.Run("/system/backup/save", map[string]any{"name": normalized}, nil, "")
+		_, err = cl.Run("/system/backup/save", map[string]any{"name": normalized}, nil, "")
 		if err != nil {
 			return nil, err
 		}

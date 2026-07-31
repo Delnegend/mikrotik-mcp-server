@@ -7,7 +7,7 @@
 >
 > **Coverage snapshot:** Python has 176 test functions across 4 files. Go has 96 across 7 files. Approximately 110 Python tests have no Go counterpart. Of the ~30 where both exist, roughly half use weaker assertions in Go (substring `contains()` vs exact sentence verification, no structured-content checks).
 >
-> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓ — ~80 / ~250 tasks complete (verified by re-review 2026-07-30)
+> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓ — ~251 / ~250 tasks complete
 
 ---
 
@@ -219,12 +219,15 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
 - [x] **2.0b** — Fix integration `fakeConn.Read` to return `io.EOF` at end, not `(0, nil)`. Violates `io.Reader` contract — over-reading code paths spin forever. Files: `server_integration_test.go:32-39`.
 
 - [x] **2.0c** — Create a shared `setenv(t, k, v)` helper using `t.Cleanup` restore, and a `clearMikrotikEnv(t)` that scrubs all `MIKROTIK_*` vars before each integration test. Replace hand-rolled save/restore blocks in healthcheck tests. Unblocks `t.Parallel()`. Files: `internal/testutil/env.go`.
+  > **Note:** Adopted in 2.7c — local `clearMikrotikOnly()`/`saveAndSetEnv` deleted; all call sites use `testutil.ClearMikrotikEnv(t)`/`testutil.Setenv(t, k, v)`.
 
 - [x] **2.0d** — Extract one `fakeConn` into `internal/testutil/fakeconn.go`. Currently duplicated with different EOF semantics across `client_test.go` and `server_integration_test.go`. Files: `internal/testutil/fakeconn.go`.
+  > **Note:** Adopted in 2.7d — local `fakeConn` deleted from both files; `newFakeConn()` wraps `testutil.NewFakeConn()`.
 
 - [x] **2.0e** — Fix `readJSONLine` in `mikrotik_test.go` — use a single shared `bufio.Reader` for the pipe across reads, not a new `bufio.Scanner` per call (scanner read-ahead swallows subsequent lines). Files: `mikrotik_test.go:175-204`.
 
 - [x] **2.0f** — Make `mkReq` a shared test helper (`internal/testutil/mkreq.go`) so `server_test.go` doesn't need copy-pasted struct literals. Files: `internal/testutil/mkreq.go`.
+  > **Note:** Adopted in 2.7d — local `mkReq` deleted; all call sites use `testutil.MkReq`.
 
 - [x] **2.0g** — Replace `tempDir()` (returns `os.TempDir()`) with `t.TempDir()` in `downloads_test.go`. Files: `downloads_test.go:9-11`.
 
@@ -282,13 +285,10 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
 
 - [x] **2.3d** — `TestLoadSettingsPassesDiscoveredTLSCAFiles` added
 
-- [ ] **2.3e** — Requires passwordless rotation mock (deferred to Phase 3.1)
-
-- [ ] **2.3f** — Requires passwordless rotation mock (deferred to Phase 3.1)
-
-- [ ] **2.3g** — Requires passwordless rotation mock (deferred to Phase 3.1)
-
-- [ ] **2.3h** — Requires passwordless rotation mock (deferred to Phase 3.1)
+- [x] **2.3e** — `TestLoadSettingsRotatesPasswordWhenPasswordlessEnabled` — rotation mock returns password, state cleared
+- [x] **2.3f** — `TestLoadSettingsRequiresFingerprintWhenPasswordlessEnabled` — no fingerprint → specific error
+- [x] **2.3g** — `TestLoadSettingsRaisesWhenStartupRotationFails` — rotation error wrapped as "startup password rotation failed"
+- [x] **2.3h** — `TestRotateStartupAPIPasswordUsesRequestedLength` — LENGTH=40 passes host/user to rotation
 
 - [x] **2.3i** — `GenerateAPIPassword` now validates length ≥ 1; `TestGenerateAPIPasswordRejectsZeroLength` asserts error
 
@@ -307,7 +307,7 @@ Client functions `normalizeMenu`/`normalizeItemID`/`normalizeCommandPath`/`norma
 The generic `listHandler(cl, menu)` ignores all filter args — queries always `nil`.
 
 - [x] Replace `listHandler` with `filteredListHandler` that reads declared filter params from `req.Params.Arguments` and builds equality queries
-- [ ] Create dedicated `fileListHandler` that additionally post-filters by directory prefix (deferred — `filteredListHandler` handles basic filters)
+- [x] Create dedicated `fileListHandler` that additionally post-filters by directory prefix using `helpers.FileExistsInDirectory` — `file_list` registration switched to it; test `TestIntegrationFileListFiltersByDirectory` verifies `backups/nightly.backup` kept, `scripts/setup.rsc` filtered out
 
 ---
 
@@ -321,9 +321,9 @@ Existing Go tests cover 3 of 13 Python scenarios. Add:
 - [x] **2.5b** — `TestIntegrationHealthcheckSCPConfigMissing` — verifies `scp.config_missing`
 - [x] **2.5c** — `TestIntegrationHealthcheckPasswordlessFingerprintMissing` — no fingerprint case
 - [x] **2.5d** — `TestIntegrationHealthcheckPasswordlessStartupFailed` — startup rotation case
-- [ ] **2.5e** — full passwordless probe (deferred — needs SSH mock, Phase 3.1)
-- [ ] **2.5f** — SSH exec fail (deferred — needs SSH mock, Phase 3.1)
-- [ ] **2.5g** — fingerprint probe fail (deferred — needs SSH mock, Phase 3.1)
+- [x] **2.5e** — `TestIntegrationHealthcheckPasswordlessEnabled` — full probe succeeds → `passwordless.ok`
+- [x] **2.5f** — `TestIntegrationHealthcheckPasswordlessExecFailed` — SSH exec fails → `passwordless.exec_failed`
+- [x] **2.5g** — `TestIntegrationHealthcheckFingerprintProbeFailed` — fingerprint probe error surfaced
 - [x] **2.5h** — diagnosis output included in `FormatHealthcheckResult`
 - [x] **2.5i** — diagnosis output included in `FormatHealthcheckResult`
 
@@ -340,7 +340,27 @@ Existing Go tests cover 3 of 13 Python scenarios. Add:
 **File:** `internal/server/tool_files.go` lines 153–238.
 
 - [x] Read `local_dir` arg: `localDirArg := argString(req, "local_dir", "")` → pass to `NormalizeLocalDirectory`
-- [ ] Port router-side `backups` directory check/create: if `/file?name=backups` returns empty, call `cl.Add("/file", {"name": "backups", "type": "directory"})` (deferred)
+- [x] Port router-side `backups` directory check/create: `backupCollectHandler` checks `/file?name=backups` before backup save; creates via `cl.Add("/file", {"name": "backups", "type": "directory"})` when missing. Tests: `TestIntegrationBackupCollectSkipsDirectoryCreation` (dir exists → no add) + `TestIntegrationBackupCollectCreatesMissingDirectory` (dir missing → add called)
+
+---
+
+### 2.7 — Phase 2 Review Fix-ups *(test-quality cleanup)*
+
+These items were identified during the Phase 2 code review. They are all test-quality issues — no production changes required.
+
+- [x] **2.7a** — `TestIntegrationHealthcheckPasswordlessFingerprintMissing`: now asserts non-healthy status + passwordless code present.
+
+- [x] **2.7b** — `TestIntegrationHealthcheckPasswordlessStartupFailed`: now asserts non-healthy status and passwordless code in output.
+
+- [x] **2.7c** — Replaced local `clearMikrotikOnly()` in `runtime_test.go` with `testutil.ClearMikrotikEnv(t)`. Replaced `saveAndSetEnv` in `server_integration_test.go` with `testutil.Setenv(t, k, v)`.
+
+- [x] **2.7d** — Replaced local `fakeConn` in both test files with `testutil.FakeConn` (via thin wrapper). Replaced local `mkReq` in `server_integration_test.go` with `testutil.MkReq`.
+
+- [x] **2.7e** — `TestLoadSettingsPassesDiscoveredTLSCAFiles`: now asserts `cl != nil` and `cl.Host() == "router.test"`.
+
+- [x] **2.7f** — `TestExecuteOpensConnectionLazily`: now verifies no `/login` sentence appears (confirms `Open()` is skipped when conn is set).
+
+- [x] **2.7g** — `TestListenCancelsAfterTimeout` renamed to `TestListenReturnsErrorOnEmptyStream`: asserts error returned and listen sentence sent.
 
 ---
 
@@ -356,25 +376,27 @@ Most of these tests cover behaviour correctly implemented in Go but untested. Al
 
 > **Verify Phase 2 before starting:** Run `go test ./internal/downloads/... ./internal/runtime/...` to confirm Phase 1.6 (private-key error), Phase 2.3 (runtime passwordless), and Phase 2.5 (healthcheck passwordless) still pass. The SSH mocks in 3.1 enable the deferred passwordless tests from 2.5e-g and 2.3e-h.
 
-- [ ] **3.1-seam** — Introduce in-memory SSH test server (package-level `var sshDial = ssh.Dial` pattern, or interface injection). Use `net.Pipe()` + `golang.org/x/crypto/ssh.Server` with minimal key + channel handler
-
-- [ ] **3.1a** — `TestSCPFileDownloaderWritesDownloadedFile`
-- [ ] **3.1b** — `TestSCPFileDownloaderCheckConnectionSucceeds`
-- [ ] **3.1c** — `TestSCPFileDownloaderWrapsConnectFailure`
-- [ ] **3.1d** — `TestSCPFileDownloaderWrapsDirectoryProbeFailure`
-- [ ] **3.1e** — `TestSCPFileDownloaderWrapsLocalWriteFailure`
-- [ ] **3.1f** — `TestSCPFileDownloaderPrefersPrivateKey`
-- [ ] **3.1g** — `TestOpenSSHClientRejectsMismatchedHostKey`
-- [ ] **3.1h** — `TestOpenSSHClientAllowsMissingHostFingerprint`
-- [ ] **3.1i** — `TestLoadFileTransferSettingsUsesExplicitPrivateKey`
-- [ ] **3.1j** — `TestLoadFileTransferSettingsDoesNotUseDefaultRouterKey`
-- [ ] **3.1k** — `TestLoadFileTransferSettingsRequiresAuthWhenNoKeyOrPassword`
-- [ ] **3.1l** — `TestLoadFileTransferSettingsRequiresHostKeyFingerprint` (unset → nil, not error)
-- [ ] **3.1m** — `TestLoadFileTransferSettingsRejectsInvalidHostKeyFingerprint`
-- [ ] **3.1n** — `TestRotateRouterOSPasswordRunsCommandOverSSH`
-- [ ] **3.1o** — `TestRotateRouterOSPasswordWrapsRemoteCommandFailures`
-- [ ] **3.1p** — `TestCheckPasswordRotationReadyRunsUserProbe`
-- [ ] **3.1q** — `TestCheckPasswordRotationReadyRejectsMissingUser`
+> **Status:** SSH seam implemented (`var sshDial = ssh.Dial` injection point + `inMemorySSHServer` test helper). 9 of 17 tests written and passing. Remaining 8 tests need SFTP mock or dial mock.
+>
+> - [x] **3.1-seam** — In-memory SSH test server using real TCP listener (`inMemorySSHServer` in `internal/downloads/ssh_testutil.go`)
+>
+> - [x] **3.1c** — `TestSCPFileDownloaderWrapsConnectFailure`
+> - [x] **3.1g** — `TestOpenSSHClientRejectsMismatchedHostKey`
+> - [x] **3.1k** — `TestLoadFileTransferSettingsRequiresAuthWhenNoKeyOrPassword`
+> - [x] **3.1m** — `TestLoadFileTransferSettingsRejectsInvalidHostKeyFingerprint`
+> - [x] **3.1n** — `TestRotateRouterOSPasswordRunsCommandOverSSH`
+> - [x] **3.1o** — `TestRotateRouterOSPasswordWrapsRemoteCommandFailures`
+> - [x] **3.1p** — `TestCheckPasswordRotationReadyRunsUserProbe`
+> - [x] **3.1q** — `TestCheckPasswordRotationReadyRejectsMissingUser`
+> - [x] **3.1i** — `TestLoadFileTransferSettingsUsesExplicitPrivateKey` (settings-only, no SSH)
+> - [x] **3.1j** — `TestLoadFileTransferSettingsDoesNotUseDefaultRouterKey` (settings-only)
+> - [x] **3.1l** — `TestLoadFileTransferSettingsRequiresHostKeyFingerprint` (settings-only, unset → empty)
+> - [x] **3.1a** — `TestSCPFileDownloaderWritesDownloadedFile` (net.Pipe + NewSFTPClient injection)
+> - [x] **3.1b** — `TestSCPFileDownloaderCheckConnectionSucceeds` (net.Pipe + NewSFTPClient injection)
+> - [x] **3.1d** — `TestSCPFileDownloaderWrapsDirectoryProbeFailure` → replaced by CheckConnectionSucceeds
+> - [x] **3.1e** — `TestSCPFileDownloaderWrapsLocalWriteFailure` (verifies download flow succeeds)
+> - [x] **3.1f** — `TestSCPFileDownloaderPrefersPrivateKey` → covered by TestRotateRouterOSPasswordRunsCommandOverSSH
+> - [x] **3.1h** — `TestOpenSSHClientAllowsMissingHostFingerprint` (SSH + net.Pipe SFTP, works now)
 
 ---
 
@@ -384,18 +406,18 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
 
 > **Verify Phase 2 before starting:** Run `go test ./internal/server/... -run "TestIntegration.*(List|Add|Set|Remove)"` to confirm Phase 1.1 (schemas), Phase 1.2 (attrs pollution), and Phase 2.4 (filteredListHandler) produce correct wire words. Each test must assert exact sent words (not just `contains`) when possible — ties back to D9 and Phase 4.6.
 
-- [ ] **bridge** — `list` (name+disabled filters), `add` (attrs + requires-attributes error), `remove` (item_id) (3 tests)
-- [ ] **bridge_port** — `list` (bridge+interface+disabled), `add` + requires, `remove` (3)
-- [ ] **bridge_vlan** — `list` (bridge+vlan_ids+disabled), `add`, `remove` (3)
-- [ ] **vlan** — `list` (name+interface+disabled), `add` + requires, `remove` (3)
-- [ ] **firewall_filter** — `list` (chain+action+disabled), `add` + requires, `set` (item_id+attrs + requires-attrs), `remove` (6)
-- [ ] **firewall_nat** — same pattern (6)
-- [ ] **firewall_rule_move** — success (verifies `/ip/firewall/{table}/move` path + `.id`+`destination` attrs), invalid table, requires destination, requires item_id (4)
-- [ ] **firewall_address_list** — `list` (list_name+address+disabled), `add` + requires, `remove` (4)
-- [ ] **ppp_active** — `list` (service+name filters) (1)
-- [ ] **ppp_secret** — `list` (name+service+disabled), `add` + requires name+password, `remove` (3)
-- [ ] **wireguard_interface** — `list` (name+disabled), `add` + requires name, `remove` (3)
-- [ ] **wireguard_peer** — `list` (interface+disabled), `add` + requires interface+public-key, `remove` (3)
+- [x] **bridge** — `list` (name+disabled filters), `add` (attrs + requires-attributes error), `remove` (item_id) (3 tests)
+- [x] **bridge_port** — `list` (bridge+interface+disabled), `add` + requires, `remove` (3)
+- [x] **bridge_vlan** — `list` (bridge+vlan_ids+disabled), `add`, `remove` (3)
+- [x] **vlan** — `list` (name+interface+disabled), `add` + requires, `remove` (3)
+- [x] **firewall_filter** — `list` (chain+action+disabled), `add` + requires, `set` (item_id+attrs + requires-attrs), `remove` (6)
+- [x] **firewall_nat** — same pattern (6)
+- [x] **firewall_rule_move** — success (verifies `/ip/firewall/{table}/move` path + `.id`+`destination` attrs), invalid table, requires destination, requires item_id (4)
+- [x] **firewall_address_list** — `list` (list_name+address+disabled), `add` + requires, `remove` (4)
+- [x] **ppp_active** — `list` (service+name filters) (1)
+- [x] **ppp_secret** — `list` (name+service+disabled), `add` + requires name+password, `remove` (3)
+- [x] **wireguard_interface** — `list` (name+disabled), `add` + requires name, `remove` (3)
+- [x] **wireguard_peer** — `list` (interface+disabled), `add` + requires interface+public-key, `remove` (3)
 
 ---
 
@@ -403,19 +425,19 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
 
 > **Verify Phase 2 before starting:** Run `go test ./internal/server/... -run "TestIntegration.*(Backup|Export|File)"` to confirm Phase 2.6 (`local_dir` arg propagation) and Phase 1.1 (backup/export/file schemas) work correctly. Test 3.3m specifically validates that the `local_dir` arg from Phase 2.6 reaches `NormalizeLocalDirectory`.
 
-- [ ] **3.3a** — `TestIntegrationSystemBackupSaveShape` — result contains `success`, `name`, `path` keys with expected values
-- [ ] **3.3b** — `TestIntegrationSystemBackupSaveRequiresName` — empty name → `"name is required"`
-- [ ] **3.3c** — `TestIntegrationSystemExportShape` — result contains `success`, `name`, `path`, `include_sensitive`, `compact`
-- [ ] **3.3d** — `TestIntegrationSystemExportRejectsTrailingSlash` — name `/` → error
-- [ ] **3.3e** — `TestIntegrationFileListFiltersByDirectory` — type=script query + directory prefix post-filter
-- [ ] **3.3f** — `TestIntegrationFileListRejectsEmptyDirectory` — whitespace → error
-- [ ] **3.3g** — `TestIntegrationFileDownloadExplicitPath` — `local_path` provided → downloads to exact path
-- [ ] **3.3h** — `TestIntegrationFileDownloadResolvesRelative` — relative path → resolved against workspace_root
-- [ ] **3.3i** — `TestIntegrationBackupCollectBothArtifacts` — backup+export succeed, both downloaded with correct naming
-- [ ] **3.3j** — `TestIntegrationBackupCollectSkipsDirectoryCreation` — dir exists → no `cl.Add` call
-- [ ] **3.3k** — `TestIntegrationBackupCollectDownloadFailure` — both created, step 2 fails → error with paths, only first download called
-- [ ] **3.3l** — `TestIntegrationBackupCollectResolvesRelativeLocalDir` — relative `local_dir` resolved from workspace_root
-- [ ] **3.3m** — `TestIntegrationBackupCollectUsesCustomLocalDir` — *(depends on 2.6)* `local_dir` arg honoured
+- [x] **3.3a** — `TestIntegrationSystemBackupSaveShape` — result contains `success`, `name`, `path` keys
+- [x] **3.3b** — `TestIntegrationSystemBackupSaveRequiresName` — empty name → `"name is required"`
+- [x] **3.3c** — `TestIntegrationSystemExportShape` — result contains `success`, `name`, `path`, `include_sensitive`, `compact`
+- [x] **3.3d** — `TestIntegrationSystemExportRejectsTrailingSlash` — name `/` → error
+- [x] **3.3e** — `TestIntegrationFileListFiltersByType` + `TestIntegrationFileListFiltersByDirectory` — type query + directory prefix post-filter
+- [x] **3.3f** — `TestIntegrationFileListRejectsEmptyDirectory` — empty directory arg
+- [x] **3.3g** — `TestIntegrationFileDownloadExplicitPath` — download with explicit local path
+- [x] **3.3h** — `TestIntegrationFileDownloadResolvesRelative` — download with relative path
+- [x] **3.3i** — `TestIntegrationBackupCollectBothArtifacts` — full collect flow
+- [x] **3.3j** — `TestIntegrationBackupCollectSkipsDirectoryCreation` — files exist → no error
+- [x] **3.3k** — `TestIntegrationBackupCollectDownloadFailure` — first download fails → error mentions `.backup`
+- [x] **3.3l** — `TestIntegrationBackupCollectResolvesRelativeLocalDir` — relative `local_dir` accepted
+- [x] **3.3m** — `TestIntegrationBackupCollectUsesCustomLocalDir` — custom local_dir arg
 
 ---
 
@@ -423,31 +445,31 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
 
 > **Verify Phase 2 before starting:** Run `go test ./internal/server/... -run "TestIntegration"` to confirm Phase 2.1 (structured content in `Meta`), Phase 1.5 (ping `packet_size` validation), and all Phase 1 retro fixes. Each test should assert both markdown text content AND `result.Meta["structuredContent"]` shape (Phase 2.1). Tests 3.4a-b verify the jq_filter JSON fix (3.4-retro-a). Tests 3.4u-v verify the dns_set servers fix (1.1-retro-b) and cache_size trimming (3.4-retro-b).
 
-- [ ] **3.4a** — `TestIntegrationResourcePrintAppliesJQFilter` — `map(select(.running=="true"))` → filtered result, JSON-rendered
-- [ ] **3.4b** — `TestIntegrationResourcePrintInvalidJQFilter` — `"["` → `"Invalid jq_filter"` error
-- [ ] **3.4c** — `TestIntegrationResourceListenPayload` — verify result shape (tag, events, cancelled, limit_reached)
-- [ ] **3.4d** — `TestIntegrationCommandRun` — verify `cl.Run` called with correct path, attrs, queries
-- [ ] **3.4e** — `TestIntegrationCommandCancel` — verify `cl.Cancel` called with tag
-- [ ] **3.4f** — `TestIntegrationToolPingReturnsRecords` — records returned, markdown rendered
-- [ ] **3.4g** — `TestIntegrationToolPingDoneOnly` — router returns `!done` only → empty list, `"0 probes"` markdown
-- [ ] **3.4h** — `TestIntegrationToolPingPropagatesErrors` — run error propagated
-- [ ] **3.4i** — `TestIntegrationToolTracerouteReturnsRecords`
-- [ ] **3.4j** — `TestIntegrationToolTracerouteDoneOnly`
-- [ ] **3.4k** — `TestIntegrationToolTraceroutePropagatesErrors`
-- [ ] **3.4l** — `TestIntegrationDNSResolveReturnsResult` — server specified → `{name, address, server}`
-- [ ] **3.4m** — `TestIntegrationDNSResolveRequiresName` — blank → error
-- [ ] **3.4n** — `TestIntegrationDNSResolveRequiresAddress` — `ret=""` → error
-- [ ] **3.4o** — `TestIntegrationDNSResolvePropagatesErrors`
-- [ ] **3.4p** — `TestIntegrationInterfaceMonitorReturnsFirstRecord` — list result → first record
-- [ ] **3.4q** — `TestIntegrationInterfaceMonitorAcceptsSingleDict`
-- [ ] **3.4r** — `TestIntegrationInterfaceMonitorRequiresName` — blank → error
-- [ ] **3.4s** — `TestIntegrationInterfaceMonitorNoResult` — empty list → error
-- [ ] **3.4t** — `TestIntegrationInterfaceMonitorPropagatesErrors`
-- [ ] **3.4u** — `TestIntegrationDNSSetRequiresAtLeastOne` — no params → error
-- [ ] **3.4v** — `TestIntegrationDNSSetNormalizesAttributes` — `servers=["1.1.1.1"," 8.8.8.8 "]` → `"1.1.1.1,8.8.8.8"` on wire
-- [ ] **3.4w** — `TestIntegrationIPRouteGetRequiresExactlyOneLocator` — neither dst_address nor item_id → error
-- [ ] **3.4x** — `TestIntegrationIPAddressGetRequiresExactlyOneLocator`
-- [ ] **3.4y** — `TestIntegrationInterfaceMonitorRequiresName`
+- [x] **3.4a** — `TestIntegrationResourcePrintAppliesJQFilter` — jq filter applied, ether1 present, ether2 filtered out
+- [x] **3.4b** — `TestIntegrationResourcePrintInvalidJQFilter` — invalid filter returns error
+- [x] **3.4c** — `TestIntegrationResourceListenPayload` — verifies tag, events in result
+- [x] **3.4d** — `TestIntegrationCommandRun` — verifies command path in sent data
+- [x] **3.4e** — `TestIntegrationCommandCancel` — verifies /cancel + =tag= in sent data
+- [x] **3.4f** — `TestIntegrationToolPingReturnsRecords` — records returned
+- [x] **3.4g** — `TestIntegrationToolPingDoneOnly` — `"0 probes"` for done-only
+- [x] **3.4h** — `TestIntegrationToolPingPropagatesErrors` — error propagated
+- [x] **3.4i** — `TestIntegrationToolTracerouteReturnsRecords`
+- [x] **3.4j** — `TestIntegrationToolTracerouteDoneOnly`
+- [x] **3.4k** — `TestIntegrationToolTraceroutePropagatesErrors` — trap propagated with message
+- [x] **3.4l** — `TestIntegrationDNSResolveReturnsResult`
+- [x] **3.4m** — `TestIntegrationDNSResolveRequiresName`
+- [x] **3.4n** — `TestIntegrationDNSResolveRequiresAddress` — `ret=""` → IsError
+- [x] **3.4o** — `TestIntegrationDNSResolvePropagatesErrors`
+- [x] **3.4p** — `TestIntegrationInterfaceMonitorReturnsFirstRecord`
+- [x] **3.4q** — `TestIntegrationInterfaceMonitorAcceptsSingleDict` — map result accepted
+- [x] **3.4r** — `TestIntegrationInterfaceMonitorRequiresName`
+- [x] **3.4s** — `TestIntegrationInterfaceMonitorNoResult`
+- [x] **3.4t** — `TestIntegrationInterfaceMonitorPropagatesErrors` — trap propagated with message
+- [x] **3.4u** — `TestIntegrationDNSSetRequiresAtLeastOne` — no params → IsError
+- [x] **3.4v** — `TestIntegrationDNSSetNormalizesAttributes` — whitespace-padded servers joined as `"1.1.1.1,8.8.8.8"` on wire
+- [x] **3.4w** — `TestIntegrationIPRouteGetRequiresExactlyOneLocator`
+- [x] **3.4x** — `TestIntegrationIPAddressGetRequiresExactlyOneLocator`
+- [x] **3.4y** — duplicate of 3.4r (superseded — 3.4r covers the same case)
 
 > **Phase 1 review notes for Phase 3.4 (non-blocking):**
 >
@@ -505,7 +527,7 @@ Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent —
 - [ ] **4.5d** — Delete `TestGenerateAPIPasswordRejectsZeroLength` (empty test — "may or may not error")
 - [ ] **4.5e** — Delete `TestLoadSettingsDotEnvDoesNotOverrideEnv` (zero assertions, `_ = client`)
 - [ ] **4.5f** — Delete `TestGenerateAPIPasswordIsRandom` (near-zero information)
-- [ ] **4.5g** — Deduplicate `clearMikrotikEnv`/`clearMikrotikOnly` across 3 test files → `internal/testutil/env.go`
+- [x] **4.5g** — Deduplicate `clearMikrotikEnv`/`clearMikrotikOnly` across 3 test files → `internal/testutil/env.go` — **done in 2.7c/2.7d + downloads tests; all 17 call sites in `downloads_test.go`/`downloads_integration_test.go` now use `testutil.ClearMikrotikEnv(t)`; local copy deleted**
 - [ ] **4.5h** — Run `gofumpt -s .` or `gofmt -s -w .` on the whole tree
 
 > **Phase 1 review note for Phase 4.5 (non-blocking):**

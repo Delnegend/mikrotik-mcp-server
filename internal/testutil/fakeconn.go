@@ -46,6 +46,12 @@ func (f *FakeConn) Sent() []byte {
 	return f.SentBuf.Bytes()
 }
 
+func (f *FakeConn) Dialer() func(string, string, time.Duration) (net.Conn, error) {
+	return func(network, addr string, _ time.Duration) (net.Conn, error) {
+		return f, nil
+	}
+}
+
 func (f *FakeConn) Close() error {
 	f.Closed = true
 	return nil

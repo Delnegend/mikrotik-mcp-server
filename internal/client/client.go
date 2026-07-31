@@ -26,6 +26,10 @@ var (
 	ErrRouterOSTransportError = errors.New("routeros: transport error")
 )
 
+var NetDial = func(network, addr string, timeout time.Duration) (net.Conn, error) {
+	return net.DialTimeout(network, addr, timeout)
+}
+
 // RouterOSError wraps RouterOS command errors with message and optional category.
 type RouterOSError struct {
 	Message  string
@@ -309,8 +313,7 @@ func (c *RouterOSClient) Connect() error {
 	defer c.mu.Unlock()
 
 	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
-	dialer := &net.Dialer{Timeout: c.timeout}
-	rawConn, err := dialer.Dial("tcp", addr)
+	rawConn, err := NetDial("tcp", addr, c.timeout)
 	if err != nil {
 		return fmt.Errorf("%w: failed to connect to %s: %v", ErrRouterOSTransportError, addr, err)
 	}
