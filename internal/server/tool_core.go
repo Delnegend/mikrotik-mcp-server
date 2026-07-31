@@ -266,6 +266,11 @@ func recoverHandler(h server.ToolHandlerFunc) server.ToolHandlerFunc {
 				err = fmt.Errorf("internal error: %v", r)
 			}
 		}()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		return h(ctx, req)
 	}
 }

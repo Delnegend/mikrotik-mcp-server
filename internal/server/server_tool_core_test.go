@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
@@ -286,5 +289,87 @@ func TestIntegrationInterfaceMonitorPropagatesErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "interface not found") {
 		t.Errorf("error should propagate router trap: %v", err)
+	}
+}
+
+// TestConcurrentToolCallsDoNotInterleave verifies execMu serializes
+// concurrent handler calls on a shared client: 5 goroutines produce
+// 5 complete, non-interleaved sentences on the fake conn.
+func TestConcurrentToolCallsDoNotInterleave(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn()
+	for i := 0; i < 5; i++ {
+		fc.WriteResponse(enc("!done"))
+	}
+	cl.SetConn(fc)
+
+	commands := []string{"/cmd/a", "/cmd/b", "/cmd/c", "/cmd/d", "/cmd/e"}
+	var wg sync.WaitGroup
+	for _, cmd := range commands {
+		wg.Add(1)
+		go func(c string) {
+			defer wg.Done()
+			_, err := handlerCommandRun(cl)(ctx(), testutil.MkReq("command_run", "command", c))
+			if err != nil {
+				t.Errorf("handler error for %s: %v", c, err)
+			}
+		}(cmd)
+	}
+	wg.Wait()
+
+	sentences, err := decodeSentences(fc.Sent())
+	if err != nil {
+		t.Fatalf("decode sent data: %v", err)
+	}
+	if len(sentences) != 5 {
+		t.Fatalf("got %d sentences, want 5 (interleaving detected)", len(sentences))
+	}
+	found := make(map[string]bool)
+	for _, s := range sentences {
+		if len(s) == 0 || !foundSentWord(s[0], commands) {
+			t.Errorf("sentence has unexpected first word: %v", s)
+			continue
+		}
+		if found[s[0]] {
+			t.Errorf("command %s appeared more than once", s[0])
+		}
+		found[s[0]] = true
+	}
+	for _, cmd := range commands {
+		if !found[cmd] {
+			t.Errorf("missing sentence for %s", cmd)
+		}
+	}
+}
+
+func foundSentWord(w string, commands []string) bool {
+	for _, c := range commands {
+		if w == c {
+			return true
+		}
+	}
+	return false
+}
+
+// TestContextCancellationAbortsCall verifies a cancelled context propagates
+// context.Canceled before the handler executes.
+func TestContextCancellationAbortsCall(t *testing.T) {
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"))
+	cl.SetConn(fc)
+
+	cancelledCtx, cancel := context.WithCancel(ctx())
+	cancel()
+
+	// Handlers are wrapped with recoverHandler at registration; mirror that here.
+	_, err := recoverHandler(handlerCommandRun(cl))(cancelledCtx, testutil.MkReq("command_run", "command", "/cmd/x"))
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error should be context.Canceled, got: %v", err)
+	}
+	if len(fc.Sent()) != 0 {
+		t.Errorf("no sentence should be sent for cancelled context, got: %q", string(fc.Sent()))
 	}
 }

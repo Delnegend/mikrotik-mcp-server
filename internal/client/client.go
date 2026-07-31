@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -267,6 +268,7 @@ type RouterOSClient struct {
 	timeout    time.Duration
 	conn       net.Conn
 	mu         sync.Mutex
+	execMu     sync.Mutex
 }
 
 func NewRouterOSClient(host, username, password string, opts ...ClientOption) *RouterOSClient {
@@ -421,8 +423,8 @@ func (c *RouterOSClient) Print(menu string, proplist, queries []string, attrs ma
 	if len(proplist) > 0 {
 		words = append(words, "=.proplist="+strings.Join(proplist, ","))
 	}
-	for key, value := range normalizeAttrs(attrs) {
-		words = append(words, "="+key+"="+value)
+	for _, attr := range normalizeAttrs(attrs) {
+		words = append(words, "="+attr.key+"="+attr.value)
 	}
 	for _, query := range normalizeQueries(queries) {
 		words = append(words, query)
@@ -484,6 +486,9 @@ func (c *RouterOSClient) Run(path string, attrs map[string]any, queries []string
 }
 
 func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs map[string]any, tag string, maxEvents int) (*ListenResult, error) {
+	c.execMu.Lock()
+	defer c.execMu.Unlock()
+
 	if maxEvents < 1 {
 		return nil, errors.New("max_events must be at least 1")
 	}
@@ -499,8 +504,8 @@ func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs m
 	if len(proplist) > 0 {
 		words = append(words, "=.proplist="+strings.Join(proplist, ","))
 	}
-	for key, value := range normalizeAttrs(attrs) {
-		words = append(words, "="+key+"="+value)
+	for _, attr := range normalizeAttrs(attrs) {
+		words = append(words, "="+attr.key+"="+attr.value)
 	}
 	for _, query := range normalizeQueries(queries) {
 		words = append(words, query)
@@ -518,6 +523,7 @@ func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs m
 	cancelDone := false
 
 	for {
+		c.setDeadline()
 		sentence, err := readSentence(c.conn)
 		if err != nil {
 			msg := err.Error()
@@ -634,11 +640,15 @@ func (c *RouterOSClient) command(path string, attrs map[string]any) (*ReplyBundl
 }
 
 func (c *RouterOSClient) execute(words []string) (*ReplyBundle, error) {
+	c.execMu.Lock()
+	defer c.execMu.Unlock()
+
 	if c.conn == nil {
 		if err := c.Open(); err != nil {
 			return nil, err
 		}
 	}
+	c.setDeadline()
 	if err := c.writeSentence(words); err != nil {
 		return nil, err
 	}
@@ -669,6 +679,12 @@ func (c *RouterOSClient) writeSentence(words []string) error {
 		return fmt.Errorf("%w: failed to send RouterOS API sentence: %v", ErrRouterOSTransportError, err)
 	}
 	return nil
+}
+
+func (c *RouterOSClient) setDeadline() {
+	if c.conn != nil {
+		_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
+	}
 }
 
 func (c *RouterOSClient) SetConn(conn net.Conn) { c.conn = conn }
@@ -784,15 +800,20 @@ func normalizeQueries(queries []string) []string {
 	return normalized
 }
 
-func normalizeAttrs(attrs map[string]any) map[string]string {
-	normalized := make(map[string]string)
-	for key, value := range attrs {
-		if value == nil {
-			continue
+func normalizeAttrs(attrs map[string]any) []struct{ key, value string } {
+	type kv struct{ k, v string }
+	var sorted []kv
+	for k, v := range attrs {
+		if v != nil {
+			sorted = append(sorted, kv{k, stringifyValue(v)})
 		}
-		normalized[key] = stringifyValue(value)
 	}
-	return normalized
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].k < sorted[j].k })
+	result := make([]struct{ key, value string }, len(sorted))
+	for i, item := range sorted {
+		result[i] = struct{ key, value string }{item.k, item.v}
+	}
+	return result
 }
 
 func stringifyValue(value any) string {
@@ -814,8 +835,8 @@ func buildMenuSentence(menu, action, itemID string, attrs map[string]any) []stri
 	if itemID != "" {
 		sentence = append(sentence, "=.id="+normalizeItemID(itemID))
 	}
-	for key, value := range normalizeAttrs(attrs) {
-		sentence = append(sentence, "="+key+"="+value)
+	for _, attr := range normalizeAttrs(attrs) {
+		sentence = append(sentence, "="+attr.key+"="+attr.value)
 	}
 	return sentence
 }
@@ -827,8 +848,8 @@ func buildCancelSentence(tag, cancelTag string) []string {
 
 func buildCommandSentence(path string, attrs map[string]any, queries []string, tag string) []string {
 	sentence := []string{normalizeCommandPath(path)}
-	for key, value := range normalizeAttrs(attrs) {
-		sentence = append(sentence, "="+key+"="+value)
+	for _, attr := range normalizeAttrs(attrs) {
+		sentence = append(sentence, "="+attr.key+"="+attr.value)
 	}
 	for _, query := range normalizeQueries(queries) {
 		sentence = append(sentence, query)

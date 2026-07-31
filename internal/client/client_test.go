@@ -3,8 +3,12 @@ package client
 import (
 	"bytes"
 	"errors"
+	"net"
+	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
 )
@@ -752,4 +756,171 @@ func TestLoginTrapRaisesCredentialError_Strengthened(t *testing.T) {
 
 func newFakeConn() *testutil.FakeConn {
 	return testutil.NewFakeConn()
+}
+
+// blockingConn is a net.Conn whose Read blocks until a deadline is set,
+// then returns a timeout error.
+type blockingConn struct {
+	sent     bytes.Buffer
+	closed   bool
+	deadline time.Time
+}
+
+func (b *blockingConn) Read(p []byte) (int, error) {
+	for {
+		if !b.deadline.IsZero() && time.Now().After(b.deadline) {
+			return 0, os.ErrDeadlineExceeded
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (b *blockingConn) Write(p []byte) (int, error) {
+	return b.sent.Write(p)
+}
+
+func (b *blockingConn) Close() error                       { b.closed = true; return nil }
+func (b *blockingConn) LocalAddr() net.Addr                { return nil }
+func (b *blockingConn) RemoteAddr() net.Addr               { return nil }
+func (b *blockingConn) SetDeadline(t time.Time) error      { b.deadline = t; return nil }
+func (b *blockingConn) SetReadDeadline(t time.Time) error  { b.deadline = t; return nil }
+func (b *blockingConn) SetWriteDeadline(t time.Time) error { return nil }
+
+func TestClientHonoursDeadline(t *testing.T) {
+	client := NewRouterOSClient("router.test", "admin", "secret", WithTimeout(50*time.Millisecond))
+	bc := &blockingConn{}
+	client.conn = bc
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Run("/system/identity/print", nil, nil, "")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected error from blocked read")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadline was not honoured — Run blocked forever")
+	}
+}
+
+func TestNormalizeAttrsSortsKeys(t *testing.T) {
+	attrs := normalizeAttrs(map[string]any{
+		"zebra": "z",
+		"alpha": "a",
+		"mike":  "m",
+		"nil":   nil, // skipped
+	})
+	var keys []string
+	for _, attr := range attrs {
+		keys = append(keys, attr.key)
+	}
+	want := []string{"alpha", "mike", "zebra"}
+	if len(keys) != len(want) {
+		t.Fatalf("got %d attrs, want %d: %v", len(keys), len(want), keys)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Errorf("attr[%d] = %q, want %q (full: %v)", i, keys[i], want[i], keys)
+		}
+	}
+}
+
+func TestConcurrentExecutesSerializeSentences(t *testing.T) {
+	client := NewRouterOSClient("router.test", "admin", "secret")
+	fake := newFakeConn()
+	// 5 responses, one per concurrent call
+	for i := 0; i < 5; i++ {
+		fake.WriteResponse(encodeSentence([]string{"!done"}))
+	}
+	client.conn = fake
+
+	commands := []string{"/cmd/a", "/cmd/b", "/cmd/c", "/cmd/d", "/cmd/e"}
+	var wg sync.WaitGroup
+	for _, cmd := range commands {
+		wg.Add(1)
+		go func(c string) {
+			defer wg.Done()
+			_, err := client.Run(c, map[string]any{"name": c}, nil, "")
+			if err != nil {
+				t.Errorf("Run(%s) error: %v", c, err)
+			}
+		}(cmd)
+	}
+	wg.Wait()
+
+	// Decode the sent buffer back into sentences and verify each is complete
+	// and contains exactly one command path.
+	sentences, err := decodeSentences(fake.Sent())
+	if err != nil {
+		t.Fatalf("decode sent data: %v", err)
+	}
+	if len(sentences) != 5 {
+		t.Fatalf("got %d sentences, want 5 (interleaving detected)", len(sentences))
+	}
+	found := make(map[string]bool)
+	for _, s := range sentences {
+		matched := false
+		for _, cmd := range commands {
+			if len(s) > 0 && s[0] == cmd {
+				matched = true
+				if found[cmd] {
+					t.Errorf("command %s appeared more than once", cmd)
+				}
+				found[cmd] = true
+			}
+		}
+		if !matched {
+			t.Errorf("sentence has unexpected first word: %v", s)
+		}
+	}
+	for _, cmd := range commands {
+		if !found[cmd] {
+			t.Errorf("missing sentence for %s", cmd)
+		}
+	}
+}
+
+// decodeSentences splits raw RouterOS wire bytes into complete sentences.
+func decodeSentences(raw []byte) ([][]string, error) {
+	var sentences [][]string
+	pos := 0
+	for pos < len(raw) {
+		var words []string
+		for {
+			length, n, err := decodeWordLength(raw[pos:])
+			if err != nil {
+				return nil, err
+			}
+			pos += n
+			if length == 0 {
+				break
+			}
+			words = append(words, string(raw[pos:pos+length]))
+			pos += length
+		}
+		sentences = append(sentences, words)
+	}
+	return sentences, nil
+}
+
+func decodeWordLength(b []byte) (int, int, error) {
+	if len(b) < 1 {
+		return 0, 0, errors.New("truncated length prefix")
+	}
+	v := b[0]
+	switch {
+	case v&0x80 == 0:
+		return int(v), 1, nil
+	case v&0xC0 == 0x80:
+		if len(b) < 2 {
+			return 0, 0, errors.New("truncated length prefix")
+		}
+		return int(uint16(v&0x3F)<<8 | uint16(b[1])), 2, nil
+	default:
+		return 0, 0, errors.New("unsupported length prefix")
+	}
 }

@@ -7,7 +7,7 @@
 >
 > **Coverage snapshot:** Python has 176 test functions across 4 files. Go has 96 across 7 files. Approximately 110 Python tests have no Go counterpart. Of the ~30 where both exist, roughly half use weaker assertions in Go (substring `contains()` vs exact sentence verification, no structured-content checks).
 >
-> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓ — ~251 / ~250 tasks complete (verified by re-review 2026-07-31)
+> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓, Phase 4 ✓ — all ~250 tasks complete (Phase 4 done 2026-07-31)
 >
 > **Full sweep 2026-07-31:** Phases 1–3 audited end-to-end before Phase 4. Found and fixed: (1) Phase 2.1 structured-content assertions were never written — backfilled with `assertStructuredContent` in 8 formatting tests + 10 integration tests; (2) dead code `NewSFTPFileServer`, `serveSFTP`/`setSFTPDir`/`sftpDir` (SFTP-over-SSH path never exercised), `sshHostKeySHA256`, `headers` var in `renderTable` — all deleted; (3) CRLF line endings in all Go files (from module-rename commit) — converted to LF, `gofmt -l` now empty; (4) go.mod upgraded to latest via `go get -u ./...` (user decision) with mcp-go v0.57 API migration.
 
@@ -501,8 +501,8 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
 
 `mcp-go` dispatches tool handlers concurrently. All share one `*RouterOSClient` whose `conn` read/write is unsynchronized.
 
-- [ ] Add `execMu sync.Mutex` to `RouterOSClient`, lock in `execute()` and `Listen()`
-- [ ] Add `TestConcurrentToolCallsDoNotInterleave` — 5 concurrent goroutines calling a handler; verify 5 complete non-interleaved sentences on the fake conn. Run with `go test -race`
+- [x] Add `execMu sync.Mutex` to `RouterOSClient`, lock in `execute()` and `Listen()`
+- [x] Add `TestConcurrentToolCallsDoNotInterleave` — 5 concurrent goroutines calling `handlerCommandRun` on a shared client; decoder verifies 5 complete non-interleaved sentences. Also `TestConcurrentExecutesSerializeSentences` at the client level. `go test -race` unavailable locally (no gcc/CGO on Windows).
 
 ### 4.2 — Read/Write Deadlines
 
@@ -510,9 +510,9 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
 
 `client.timeout` is only used for `Dial`. Python sets `socket.settimeout(timeout)` for all I/O.
 
-- [ ] In `execute()`, set `c.conn.SetDeadline(time.Now().Add(c.timeout))` before the write-and-read loop
-- [ ] In `Listen()`, set per-iteration deadlines
-- [ ] Add `TestClientHonoursDeadline` — fake conn blocks forever on Read; expect error within timeout window
+- [x] In `execute()`, set `c.conn.SetDeadline(time.Now().Add(c.timeout))` before the write-and-read loop
+- [x] In `Listen()`, set per-iteration deadlines
+- [x] Add `TestClientHonoursDeadline` — `blockingConn` blocks on Read until deadline; error returned within the timeout window
 
 ### 4.3 — Context Propagation
 
@@ -520,9 +520,9 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
 
 Handlers receive `ctx context.Context` but ignore it. An MCP client cancelling has no effect on in-flight RouterOS operations.
 
-- [ ] Add `select { case <-ctx.Done(): return ctx.Err(); default: }` at the start of every handler
-- [ ] (Longer-term) thread `ctx` through `cl.Run`/`cl.Print`/`cl.Listen`
-- [ ] Add `TestContextCancellationAbortsCall` — cancel context before handler → `context.Canceled` propagated
+- [x] Add `select { case <-ctx.Done(): return ctx.Err(); default: }` — implemented centrally in `recoverHandler`, which wraps every handler registration (equivalent to "start of every handler")
+- [ ] (Longer-term) thread `ctx` through `cl.Run`/`cl.Print`/`cl.Listen` — deferred; would require client API signature changes
+- [x] Add `TestContextCancellationAbortsCall` — cancelled context → `context.Canceled` propagated, no sentence sent
 
 ### 4.4 — Network Guardrail
 
@@ -530,7 +530,7 @@ Handlers receive `ctx context.Context` but ignore it. An MCP client cancelling h
 
 Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent — a test that accidentally calls `Isolated()` without a fake conn dials real TCP.
 
-- [ ] Add `init()` guard in a `//go:build testing` file — panics unless `MIKROTIK_TEST_ALLOW_NETWORK=1`
+- [x] Add `init()` guard in `internal/testutil/network_guard_test.go` — replaces default `client.NetDial` with a guard that errors on non-localhost dials unless `MIKROTIK_TEST_ALLOW_NETWORK=1`. Localhost allowed (in-memory SSH server).
 
 ### 4.5 — Proactive Cleanup & Hygiene Deletions
 
@@ -553,19 +553,8 @@ Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent —
 
 `normalizeAttrs` iterates a map → random word order in built sentences. This forces `contains()` assertions instead of exact-byte comparison.
 
-- [ ] Sort the keys before emitting attr words:
-  ```go
-  func normalizeAttrs(attrs map[string]any) []struct{ key, value string } {
-      type kv struct{ k, v string }
-      var sorted []kv
-      for k, v := range attrs {
-          if v != nil { sorted = append(sorted, kv{k, stringifyValue(v)}) }
-      }
-      sort.Slice(sorted, func(i, j int) bool { return sorted[i].k < sorted[j].k })
-      return sorted
-  }
-  ```
-- [ ] Adapt `buildMenuSentence`, `Print`, `buildCommandSentence` callers to use the sorted return type
+- [x] Sort the keys before emitting attr words — `normalizeAttrs` now returns a sorted `[]struct{key, value string}`; `TestNormalizeAttrsSortsKeys` verifies sorted order + nil skipping
+- [x] Adapt `buildMenuSentence`, `Print`, `buildCommandSentence`, `Listen` callers to use the sorted return type
 
 ---
 
