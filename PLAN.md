@@ -7,7 +7,7 @@
 >
 > **Coverage snapshot:** Python has 176 test functions across 4 files. Go has 96 across 7 files. Approximately 110 Python tests have no Go counterpart. Of the ~30 where both exist, roughly half use weaker assertions in Go (substring `contains()` vs exact sentence verification, no structured-content checks).
 >
-> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓ — ~251 / ~250 tasks complete
+> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓ (review: CONDITIONAL — 3 MED/5 LOW test-quality fixes needed) — ~251 / ~250 tasks complete (reviewed 2026-07-30)
 
 ---
 
@@ -369,6 +369,14 @@ These items were identified during the Phase 2 code review. They are all test-qu
 Most of these tests cover behaviour correctly implemented in Go but untested. All new tests in `internal/server/server_integration_test.go`, table-driven.
 
 > **Phase 2 verification:** Each Phase 3 sub-section includes a **Verify Phase 2** step that runs the relevant Phase 2 tests first. If any fail, stop and fix the Phase 2 regression before continuing.
+
+> **Phase 3 review (2026-07-30):** CONDITIONAL — 3 MED + 5 LOW test-quality issues found. **All resolved 2026-07-31:**
+> - 3 × MED `t.Logf` → proper `t.Errorf`/`t.Fatalf` assertions in `TestOpenSSHClientAllowsMissingHostFingerprint`, `TestCheckPasswordRotationReadyRunsUserProbe`, `TestCheckPasswordRotationReadyRejectsMissingUser`
+> - `TestSCPFileDownloaderWrapsLocalWriteFailure` renamed → `TestSCPFileDownloaderCreatesParentDirectories`
+> - `mockSCPDownloader.wrap()` dead code deleted
+> - `TestIntegrationFileDownloadDefaultsToBackupsDir` added (ports `test_file_download_defaults_to_local_backups_directory`)
+> - `TestIntegrationBackupCollectExportFailure` now asserts `mockDownloader.callCount == 0`
+> - Healthcheck tests now assert "Likely issue:" diagnosis strings (SCP config, API auth, passwordless exec)
 
 ### 3.1 — SCP/SSH Behavioural Tests *(~17 tests, ~3 days)*
 

@@ -143,7 +143,7 @@ func TestSCPFileDownloaderWritesDownloadedFile(t *testing.T) {
 	}
 }
 
-func TestSCPFileDownloaderWrapsLocalWriteFailure(t *testing.T) {
+func TestSCPFileDownloaderCreatesParentDirectories(t *testing.T) {
 	settings, cleanup := sftpTestEnvironment(t)
 	defer cleanup()
 
@@ -170,7 +170,7 @@ func TestOpenSSHClientAllowsMissingHostFingerprint(t *testing.T) {
 	dl := NewSCPFileDownloader(settings)
 	_, err := dl.CheckConnection()
 	if err != nil {
-		t.Logf("connection result: %v", err)
+		t.Fatalf("connection should succeed without fingerprint verification, got: %v", err)
 	}
 }
 
@@ -336,10 +336,12 @@ func TestCheckPasswordRotationReadyRunsUserProbe(t *testing.T) {
 	os.Setenv("MIKROTIK_SCP_PORT", portStr)
 
 	_, err = CheckPasswordRotationReady(host, "admin")
-	if err == nil {
-		t.Log("password rotation check connected to mock server (expected)")
-	} else {
-		t.Logf("password rotation check result: %v (may be expected if no user probe)", err)
+	if err != nil {
+		// The in-memory server doesn't emulate the user-count probe output,
+		// so a "not found" error is expected unless we mock the exec output.
+		if !strings.Contains(err.Error(), "was not found over SSH") {
+			t.Errorf("unexpected error from user probe: %v", err)
+		}
 	}
 }
 
@@ -368,8 +370,11 @@ func TestCheckPasswordRotationReadyRejectsMissingUser(t *testing.T) {
 	os.Setenv("MIKROTIK_SCP_PORT", portStr)
 
 	_, err = CheckPasswordRotationReady(host, "nonexistent")
-	if err != nil {
-		t.Logf("expected error for nonexistent user: %v", err)
+	if err == nil {
+		t.Fatal("expected error for nonexistent user")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention not found: %v", err)
 	}
 }
 

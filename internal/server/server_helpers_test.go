@@ -8,7 +8,6 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
-	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
 	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
 )
 
@@ -107,9 +106,6 @@ func resultText(result *mcp.CallToolResult) string {
 func ctx() context.Context {
 	return context.Background()
 }
-
-// mockSCPDownloader.wrap is unused but kept for interface compatibility
-func (m *mockSCPDownloader) wrap() *downloads.SCPFileDownloader { return nil }
 
 // mapToArgs converts a map to alternating key/value arguments for mkReq
 func mapToArgs(m map[string]any) []any {

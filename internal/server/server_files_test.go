@@ -119,6 +119,39 @@ func TestIntegrationFileDownloadResolvesRelative(t *testing.T) {
 	}
 }
 
+func TestIntegrationFileDownloadDefaultsToBackupsDir(t *testing.T) {
+	origLoad := ftLoadFileTransferSettings
+	origNew := ftNewSCPFileDownloader
+	ftLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
+		return &downloads.FileTransferSettings{Host: host, Port: 22, Username: "admin", Password: "pass"}, nil
+	}
+	ftNewSCPFileDownloader = func(s *downloads.FileTransferSettings) fileDownloader {
+		return &mockDownloader{}
+	}
+	defer func() {
+		ftLoadFileTransferSettings = origLoad
+		ftNewSCPFileDownloader = origNew
+	}()
+
+	cl := client.NewRouterOSClient("router.test", "admin", "secret")
+	fc := newFakeConn(enc("!done"))
+	cl.SetConn(fc)
+
+	// No local_path → defaults to {workspace}/backups/<basename>
+	result, err := downloadHandler(cl)(ctx(), testutil.MkReq("file_download", "router_path", "test.backup"))
+	if err != nil {
+		t.Fatalf("download error: %v", err)
+	}
+	assertResult(t, result)
+	text := resultText(result)
+	if !strings.Contains(text, "backups") {
+		t.Errorf("expected default backups directory in result: %s", text)
+	}
+	if !strings.Contains(text, "test.backup") {
+		t.Errorf("expected file name in result: %s", text)
+	}
+}
+
 func TestIntegrationBackupCollectBothArtifacts(t *testing.T) {
 	origLoad := ftLoadFileTransferSettings
 	origNew := ftNewSCPFileDownloader
@@ -332,6 +365,20 @@ func TestIntegrationBackupCollectResolvesRelativeLocalDir(t *testing.T) {
 }
 
 func TestIntegrationBackupCollectExportFailure(t *testing.T) {
+	origLoad := ftLoadFileTransferSettings
+	origNew := ftNewSCPFileDownloader
+	md := &mockDownloader{}
+	ftLoadFileTransferSettings = func(host string) (*downloads.FileTransferSettings, error) {
+		return &downloads.FileTransferSettings{Host: host, Port: 22, Username: "admin", Password: "pass"}, nil
+	}
+	ftNewSCPFileDownloader = func(s *downloads.FileTransferSettings) fileDownloader {
+		return md
+	}
+	defer func() {
+		ftLoadFileTransferSettings = origLoad
+		ftNewSCPFileDownloader = origNew
+	}()
+
 	cl := client.NewRouterOSClient("router.test", "admin", "secret")
 	fc := newFakeConn(
 		enc("!re", "=name=backups", "=type=directory"), enc("!done"),
@@ -345,5 +392,8 @@ func TestIntegrationBackupCollectExportFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "export") {
 		t.Errorf("error should mention export: %v", err)
+	}
+	if md.callCount != 0 {
+		t.Errorf("no download should be attempted when export fails, got %d calls", md.callCount)
 	}
 }

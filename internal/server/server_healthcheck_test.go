@@ -246,6 +246,9 @@ func TestIntegrationHealthcheckSCPConfigMissing(t *testing.T) {
 	if !strings.Contains(text, "scp.config_missing") {
 		t.Errorf("expected scp.config_missing, got: %s", text)
 	}
+	if !strings.Contains(text, "Likely issue") || !strings.Contains(text, "SCP configuration is incomplete") {
+		t.Errorf("expected Likely issue diagnosis for missing SCP config, got: %s", text)
+	}
 }
 
 func TestIntegrationHealthcheckAPIAuthFailed(t *testing.T) {
@@ -285,6 +288,9 @@ func TestIntegrationHealthcheckAPIAuthFailed(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "api.auth_failed") {
 		t.Errorf("expected api.auth_failed, got: %s", text)
+	}
+	if !strings.Contains(text, "Likely issue") || !strings.Contains(text, "API authentication failed") {
+		t.Errorf("expected Likely issue diagnosis for auth failure, got: %s", text)
 	}
 }
 
@@ -379,6 +385,9 @@ func TestIntegrationHealthcheckPasswordlessExecFailed(t *testing.T) {
 	text := resultText(result)
 	if !strings.Contains(text, "passwordless.exec_failed") {
 		t.Errorf("expected passwordless.exec_failed, got: %s", text)
+	}
+	if !strings.Contains(text, "Likely issue") || !strings.Contains(text, "Passwordless SSH command execution failed") {
+		t.Errorf("expected Likely issue diagnosis for exec failure, got: %s", text)
 	}
 }
 
