@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -55,6 +56,7 @@ func BuildEqualityQueries(filters map[string]any) []string {
 		}
 		queries = append(queries, field+"="+StringifyValue(value))
 	}
+	sort.Strings(queries)
 	return queries
 }
 

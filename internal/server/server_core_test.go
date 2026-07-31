@@ -158,7 +158,7 @@ func TestIntegrationDHCPLeaseListActiveOnly(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
-	assertSent(t, fc, "status=bound")
+	assertSentExact(t, fc, []string{"/ip/dhcp-server/lease/print", "?status=bound"})
 }
 
 func TestIntegrationDNSGet(t *testing.T) {
@@ -204,7 +204,7 @@ func TestIntegrationDNSSetNormalizesAttributes(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("error: %s", resultText(result))
 	}
-	assertSent(t, fc, "=servers=1.1.1.1,8.8.8.8")
+	assertSentExact(t, fc, []string{"/ip/dns/set", "=servers=1.1.1.1,8.8.8.8"})
 }
 
 func TestIntegrationDNSSetRequiresAtLeastOne(t *testing.T) {
@@ -361,8 +361,7 @@ func TestIntegrationSystemExportWithFlags(t *testing.T) {
 		t.Fatalf("export error: %v", err)
 	}
 	assertResult(t, result)
-	assertSent(t, fc, "show-sensitive")
-	assertSent(t, fc, "compact")
+	assertSentExact(t, fc, []string{"/export", "=compact=", "=file=config-export", "=show-sensitive="})
 }
 
 func TestIntegrationResourceAddRequiresMenu(t *testing.T) {

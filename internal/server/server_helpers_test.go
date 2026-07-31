@@ -2,8 +2,8 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -127,13 +127,36 @@ func mapToArgs(m map[string]any) []any {
 	return args
 }
 
-// assertSent checks that the fake conn's sent data contains the given substring
-func assertSent(t *testing.T, fc *testutil.FakeConn, substr string) {
+// assertSentExact decodes the sent data and asserts it is exactly one
+// sentence with the exact word list (D9 deterministic-wire assertions).
+func assertSentExact(t *testing.T, fc *testutil.FakeConn, want []string) {
 	t.Helper()
-	sent := string(fc.Sent())
-	if !strings.Contains(sent, substr) {
-		t.Errorf("expected sent data to contain %q, got: %s", substr, sent)
+	sentences, err := testutil.DecodeSentences(fc.Sent())
+	if err != nil {
+		t.Fatalf("decode sent data: %v", err)
 	}
+	if len(sentences) != 1 {
+		t.Fatalf("got %d sentences, want 1: %v", len(sentences), sentences)
+	}
+	if !reflect.DeepEqual(sentences[0], want) {
+		t.Errorf("sent words = %v, want %v", sentences[0], want)
+	}
+}
+
+// assertSentContainsExact asserts that at least one decoded sentence exactly
+// equals the given word list (for multi-operation flows).
+func assertSentContainsExact(t *testing.T, fc *testutil.FakeConn, want []string) {
+	t.Helper()
+	sentences, err := testutil.DecodeSentences(fc.Sent())
+	if err != nil {
+		t.Fatalf("decode sent data: %v", err)
+	}
+	for _, s := range sentences {
+		if reflect.DeepEqual(s, want) {
+			return
+		}
+	}
+	t.Errorf("no sent sentence matches %v; got %v", want, sentences)
 }
 
 // containsAll checks that s contains all of the given substrings
@@ -148,41 +171,5 @@ func containsAll(s string, substrings ...string) bool {
 
 // decodeSentences splits raw RouterOS wire bytes into complete sentences.
 func decodeSentences(raw []byte) ([][]string, error) {
-	var sentences [][]string
-	pos := 0
-	for pos < len(raw) {
-		var words []string
-		for {
-			length, n, err := decodeWordLength(raw[pos:])
-			if err != nil {
-				return nil, err
-			}
-			pos += n
-			if length == 0 {
-				break
-			}
-			words = append(words, string(raw[pos:pos+length]))
-			pos += length
-		}
-		sentences = append(sentences, words)
-	}
-	return sentences, nil
-}
-
-func decodeWordLength(b []byte) (int, int, error) {
-	if len(b) < 1 {
-		return 0, 0, errors.New("truncated length prefix")
-	}
-	v := b[0]
-	switch {
-	case v&0x80 == 0:
-		return int(v), 1, nil
-	case v&0xC0 == 0x80:
-		if len(b) < 2 {
-			return 0, 0, errors.New("truncated length prefix")
-		}
-		return int(uint16(v&0x3F)<<8 | uint16(b[1])), 2, nil
-	default:
-		return 0, 0, errors.New("unsupported length prefix")
-	}
+	return testutil.DecodeSentences(raw)
 }

@@ -683,6 +683,9 @@ func (c *RouterOSClient) writeSentence(words []string) error {
 
 func (c *RouterOSClient) setDeadline() {
 	if c.conn != nil {
+		// Deliberately ignored: if the connection is already broken,
+		// the subsequent readSentence/writeSentence will surface the
+		// real transport error.
 		_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
 	}
 }

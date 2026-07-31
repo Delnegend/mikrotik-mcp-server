@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sort"
 
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
@@ -103,6 +104,7 @@ func filteredListHandler(cl *client.RouterOSClient, menu string, filterParams ma
 				}
 			}
 		}
+		sort.Strings(queries)
 		items, err := helpers.PrintRecords(cl, menu, nil, queries, nil)
 		if err != nil {
 			return nil, err

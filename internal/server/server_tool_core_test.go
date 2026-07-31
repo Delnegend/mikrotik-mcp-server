@@ -42,7 +42,7 @@ func TestIntegrationCommandRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/system/backup/save")
+	assertSentExact(t, fc, []string{"/system/backup/save", "=name=test"})
 }
 
 func TestIntegrationCommandCancel(t *testing.T) {
@@ -53,8 +53,7 @@ func TestIntegrationCommandCancel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/cancel")
-	assertSent(t, fc, "=tag=test-tag")
+	assertSentExact(t, fc, []string{"/cancel", "=tag=test-tag"})
 }
 
 func TestIntegrationToolPingReturnsRecords(t *testing.T) {

@@ -31,7 +31,7 @@ func TestIntegrationFileListFiltersByType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?type=script")
+	assertSentExact(t, fc, []string{"/file/print", "?type=script"})
 }
 
 func TestIntegrationFileListRejectsEmptyDirectory(t *testing.T) {

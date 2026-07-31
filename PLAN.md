@@ -7,7 +7,7 @@
 >
 > **Coverage snapshot:** Python has 176 test functions across 4 files. Go has 96 across 7 files. Approximately 110 Python tests have no Go counterpart. Of the ~30 where both exist, roughly half use weaker assertions in Go (substring `contains()` vs exact sentence verification, no structured-content checks).
 >
-> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓, Phase 4 ✓ — all ~250 tasks complete (Phase 4 done 2026-07-31)
+> **Progress:** Phase 0 ✓, Phase 1 ✓, Phase 2 ✓, Phase 3 ✓, Phase 4 ✓ — all ~250 tasks complete (Phase 4 + review fixes done 2026-07-31)
 >
 > **Full sweep 2026-07-31:** Phases 1–3 audited end-to-end before Phase 4. Found and fixed: (1) Phase 2.1 structured-content assertions were never written — backfilled with `assertStructuredContent` in 8 formatting tests + 10 integration tests; (2) dead code `NewSFTPFileServer`, `serveSFTP`/`setSFTPDir`/`sftpDir` (SFTP-over-SSH path never exercised), `sshHostKeySHA256`, `headers` var in `renderTable` — all deleted; (3) CRLF line endings in all Go files (from module-rename commit) — converted to LF, `gofmt -l` now empty; (4) go.mod upgraded to latest via `go get -u ./...` (user decision) with mcp-go v0.57 API migration.
 
@@ -494,6 +494,11 @@ Use table-driven tests. Each row: `name`, `handler`, `args`, `wantSentWords`, `w
  
 ## Phase 4: Robustness, Hygiene & Go-Specific Dimensions *(~5–7 days)*
 
+> **Phase 4 review fixes (2026-07-31):** all findings resolved —
+> - LOW 1: `decodeSentences`/`decodeWordLength` duplicated in 2 test packages → extracted to `internal/testutil/wire.go` as `DecodeSentences`/`DecodeWordLength`; local copies deleted from `client_test.go` and `server_helpers_test.go`.
+> - LOW 2: `setDeadline` error suppression now documented with a comment explaining the deliberate ignore (real error surfaces on subsequent read/write).
+> - MED (cross-phase, D9): Phase 3 substring assertions (`assertSent`) upgraded to exact decoded-word assertions. Added `assertSentExact` (single sentence) + `assertSentContainsExact` (multi-sentence) helpers; upgraded all 36 call sites across core/files/layer2/tool_core tests. Also made query emission deterministic: `helpers.BuildEqualityQueries` sorts output, `filteredListHandler` sorts queries (attrs were already sorted by 4.6). Dead `assertSent` helper deleted. **D9 promise now fulfilled.**
+
 
 ### 4.1 — Concurrency Safety
 
@@ -555,6 +560,8 @@ Python enforces `--disable-socket` via `pytest-socket`. Go has no equivalent —
 
 - [x] Sort the keys before emitting attr words — `normalizeAttrs` now returns a sorted `[]struct{key, value string}`; `TestNormalizeAttrsSortsKeys` verifies sorted order + nil skipping
 - [x] Adapt `buildMenuSentence`, `Print`, `buildCommandSentence`, `Listen` callers to use the sorted return type
+
+> **D9 follow-up (non-blocking):** The deterministic sort is complete, but Phase 3 integration tests still use `assertSent(t, fc, substring)` / `containsAll()` substring matching. The D9 decision was to "force exact assertions after making attr order deterministic." A future pass should replace substring checks with decoded-sentence exact-word assertions where attr order matters.
 
 ---
 

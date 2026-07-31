@@ -19,7 +19,7 @@ func TestIntegrationResourceAdd(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
-	assertSent(t, fc, "/interface/bridge/add")
+	assertSentExact(t, fc, []string{"/interface/bridge/add", "=name=br-test"})
 }
 
 func TestIntegrationResourceSet(t *testing.T) {
@@ -32,8 +32,7 @@ func TestIntegrationResourceSet(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
-	assertSent(t, fc, "/ip/address/set")
-	assertSent(t, fc, "=.id=*4")
+	assertSentExact(t, fc, []string{"/ip/address/set", "=.id=*4", "=disabled=true"})
 }
 
 func TestIntegrationResourceRemove(t *testing.T) {
@@ -46,7 +45,7 @@ func TestIntegrationResourceRemove(t *testing.T) {
 		t.Fatalf("handler error: %v", err)
 	}
 	assertResult(t, result)
-	assertSent(t, fc, "/ip/address/remove")
+	assertSentExact(t, fc, []string{"/ip/address/remove", "=.id=*5"})
 }
 
 // Bridge
@@ -60,8 +59,7 @@ func TestIntegrationBridgeList(t *testing.T) {
 		if err != nil {
 			t.Fatalf("handler error: %v", err)
 		}
-		assertSent(t, fc, "/interface/bridge/print")
-		assertSent(t, fc, "?name=br0")
+		assertSentExact(t, fc, []string{"/interface/bridge/print", "?name=br0"})
 	})
 }
 
@@ -73,7 +71,7 @@ func TestIntegrationBridgeAdd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/interface/bridge/add")
+	assertSentExact(t, fc, []string{"/interface/bridge/add", "=name=br1"})
 }
 
 func TestIntegrationBridgeAddRequiresAttributes(t *testing.T) {
@@ -92,8 +90,7 @@ func TestIntegrationBridgeRemove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/interface/bridge/remove")
-	assertSent(t, fc, "=.id=*7")
+	assertSentExact(t, fc, []string{"/interface/bridge/remove", "=.id=*7"})
 }
 
 func TestIntegrationBridgePortList(t *testing.T) {
@@ -104,8 +101,7 @@ func TestIntegrationBridgePortList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/interface/bridge/port/print")
-	assertSent(t, fc, "?bridge=br0")
+	assertSentExact(t, fc, []string{"/interface/bridge/port/print", "?bridge=br0"})
 }
 
 func TestIntegrationBridgePortAdd(t *testing.T) {
@@ -116,7 +112,7 @@ func TestIntegrationBridgePortAdd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/interface/bridge/port/add")
+	assertSentExact(t, fc, []string{"/interface/bridge/port/add", "=bridge=br0", "=interface=ether1"})
 }
 
 func TestIntegrationBridgeVlanList(t *testing.T) {
@@ -127,7 +123,7 @@ func TestIntegrationBridgeVlanList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?vlan-ids=100")
+	assertSentExact(t, fc, []string{"/interface/bridge/vlan/print", "?vlan-ids=100"})
 }
 
 func TestIntegrationVlanList(t *testing.T) {
@@ -138,7 +134,7 @@ func TestIntegrationVlanList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?interface=bridge")
+	assertSentExact(t, fc, []string{"/interface/vlan/print", "?interface=bridge"})
 }
 
 // Firewall
@@ -151,8 +147,7 @@ func TestIntegrationFirewallFilterList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?chain=input")
-	assertSent(t, fc, "?action=accept")
+	assertSentExact(t, fc, []string{"/ip/firewall/filter/print", "?action=accept", "?chain=input"})
 }
 
 func TestIntegrationFirewallFilterSet(t *testing.T) {
@@ -163,8 +158,7 @@ func TestIntegrationFirewallFilterSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/ip/firewall/filter/set")
-	assertSent(t, fc, "=.id=*1")
+	assertSentExact(t, fc, []string{"/ip/firewall/filter/set", "=.id=*1", "=disabled=true"})
 }
 
 func TestIntegrationFirewallNatList(t *testing.T) {
@@ -175,7 +169,7 @@ func TestIntegrationFirewallNatList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?chain=srcnat")
+	assertSentExact(t, fc, []string{"/ip/firewall/nat/print", "?chain=srcnat"})
 }
 
 func TestIntegrationFirewallRuleMove(t *testing.T) {
@@ -186,9 +180,7 @@ func TestIntegrationFirewallRuleMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/ip/firewall/filter/move")
-	assertSent(t, fc, "=.id=*2")
-	assertSent(t, fc, "=destination=0")
+	assertSentExact(t, fc, []string{"/ip/firewall/filter/move", "=.id=*2", "=destination=0"})
 }
 
 func TestIntegrationFirewallRuleMoveInvalidTable(t *testing.T) {
@@ -207,7 +199,7 @@ func TestIntegrationFirewallAddressListList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?list=blocked")
+	assertSentExact(t, fc, []string{"/ip/firewall/address-list/print", "?list=blocked"})
 }
 
 // PPP
@@ -220,7 +212,7 @@ func TestIntegrationPPPActiveList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?service=pppoe")
+	assertSentExact(t, fc, []string{"/ppp/active/print", "?service=pppoe"})
 }
 
 func TestIntegrationPPPSecretAdd(t *testing.T) {
@@ -231,7 +223,7 @@ func TestIntegrationPPPSecretAdd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/ppp/secret/add")
+	assertSentExact(t, fc, []string{"/ppp/secret/add", "=name=user1", "=password=pass123"})
 }
 
 func TestIntegrationPPPSecretAddRequiresFields(t *testing.T) {
@@ -252,7 +244,7 @@ func TestIntegrationWireguardInterfaceList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "?name=wg0")
+	assertSentExact(t, fc, []string{"/interface/wireguard/print", "?name=wg0"})
 }
 
 func TestIntegrationWireguardPeerAdd(t *testing.T) {
@@ -263,7 +255,7 @@ func TestIntegrationWireguardPeerAdd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
 	}
-	assertSent(t, fc, "/interface/wireguard/peers/add")
+	assertSentExact(t, fc, []string{"/interface/wireguard/peers/add", "=interface=wg0", "=public-key=abc123"})
 }
 
 func TestIntegrationWireguardPeerAddRequiresFields(t *testing.T) {
