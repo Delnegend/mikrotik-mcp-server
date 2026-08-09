@@ -25,12 +25,18 @@ This project is a **Go port** of the Python project [parkerkane/mikrotik-manager
 ## Installation
 
 ```bash
-# Option 1 — download the matching binary for your platform from Releases
-# (linux/darwin/windows × amd64/arm64, with SHA256 checksums)
+# Option 1 — download the matching archive for your platform from Releases
+# (linux/darwin/windows × amd64/arm64, as .tar.xz or .7z)
 
 # Option 2 — install with Go
 go install github.com/Delnegend/mikrotik-mcp@latest
+
+# Option 3 — curl | tar, extract the binary straight into /usr/local/bin (Linux amd64)
+curl -fsSL https://github.com/Delnegend/mikrotik-mcp-server/releases/latest/download/mikrotik-mcp-linux-amd64.tar.xz | sudo tar -xJf - -C /usr/local/bin
+sudo mv /usr/local/bin/mikrotik-mcp-linux-amd64 /usr/local/bin/mikrotik-mcp
 ```
+
+Replace `linux-amd64` with `linux-arm64` or `darwin-amd64` for other platforms. The archive contains a single binary named after its platform (e.g. `mikrotik-mcp-linux-amd64`), hence the rename so the MCP configs below can call it as `mikrotik-mcp`.
 
 Run the server directly to verify it connects:
 
