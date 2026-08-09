@@ -1,6 +1,5 @@
 name: Release
 
-# release workflow
 on:
   workflow_dispatch:
     inputs:
