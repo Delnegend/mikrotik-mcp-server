@@ -83,11 +83,6 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          find . -type f | sort | xargs sha256sum > ../checksums.txt
-
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
@@ -104,4 +99,3 @@ jobs:
           prerelease: false
           files: |
             artifacts/**/*
-            checksums.txt
