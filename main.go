@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 
 	"github.com/Delnegend/mikrotik-mcp/internal/runtime"
@@ -9,8 +10,16 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+var version = "dev"
+
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("mikrotik-mcp %s\n", version)
+		return
+	}
+
 	args := flag.Args()
 	if len(args) < 1 {
 		log.Fatal("Usage: mikrotik-mcp <host>")
