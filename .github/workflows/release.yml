@@ -49,6 +49,20 @@ jobs:
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           go build -v -ldflags="-X main.version=${{ inputs.release_version }}" -o "${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" .
 
+      - name: Compress binary
+        run: |
+          base="${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            if ! command -v 7z >/dev/null 2>&1; then
+              sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full
+            fi
+            7z a -t7z "${base}.7z" "${base}.exe" >/dev/null
+          else
+            tar -cJf "${base}.tar.xz" "${base}"
+          fi
+          rm -f "${base}.exe" "${base}"
+          ls -lh ${base}.*
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -82,7 +96,10 @@ jobs:
           body: |
             ## v${{ inputs.release_version }}
 
-            Download the binary for your platform below.
+            Download the archive for your platform below:
+
+            - **Windows**: `.7z` (extract with 7-Zip)
+            - **Linux / macOS**: `.tar.xz` (extract with `tar -xJf`)
           draft: false
           prerelease: false
           files: |
