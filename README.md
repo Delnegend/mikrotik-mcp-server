@@ -31,7 +31,11 @@ This project is a **Go port** of the Python project [parkerkane/mikrotik-manager
 # Option 2 — install with Go
 go install github.com/Delnegend/mikrotik-mcp@latest
 
-# Option 3 — curl | tar, extract the binary straight into /usr/local/bin (Linux amd64)
+# Option 3 — install with Homebrew
+brew tap Delnegend/tap
+brew install mikrotik-mcp
+
+# Option 4 — curl | tar, extract the binary straight into /usr/local/bin (Linux amd64)
 curl -fsSL https://github.com/Delnegend/mikrotik-mcp-server/releases/latest/download/mikrotik-mcp-linux-amd64.tar.xz | sudo tar -xJf - -C /usr/local/bin
 sudo mv /usr/local/bin/mikrotik-mcp-linux-amd64 /usr/local/bin/mikrotik-mcp
 ```
