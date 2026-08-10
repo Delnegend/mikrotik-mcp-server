@@ -73,7 +73,7 @@ func TestOpenSSHClientRejectsMismatchedHostKey(t *testing.T) {
 func pipeSFTP(dir string) func(*ssh.Client, ...sftp.ClientOption) (*sftp.Client, error) {
 	clientEnd, serverEnd := net.Pipe()
 	go func() {
-		svr, err := sftp.NewServer(serverEnd)
+		svr, err := sftp.NewServer(serverEnd, sftp.WithServerWorkingDirectory("/"))
 		if err != nil {
 			return
 		}
