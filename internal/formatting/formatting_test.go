@@ -330,7 +330,7 @@ func TestCallToolResultFromRecordInterfaceGetPreferredFieldsOrder(t *testing.T) 
 }
 
 func TestCallToolResultError(t *testing.T) {
-	errResult := CallToolResultError("some error message")
+	errResult := mcp.NewToolResultError("some error message")
 	if !errResult.IsError {
 		t.Error("expected IsError true")
 	}
@@ -340,7 +340,7 @@ func TestCallToolResultError(t *testing.T) {
 }
 
 func TestCallToolResultText(t *testing.T) {
-	textResult := CallToolResultText("plain text output")
+	textResult := mcp.NewToolResultText("plain text output")
 	if textResult.IsError {
 		t.Error("expected IsError false")
 	}

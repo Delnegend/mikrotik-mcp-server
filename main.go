@@ -27,13 +27,12 @@ func main() {
 
 	host := args[0]
 
-	cl, err := runtime.LoadSettings(host)
+	reg, err := runtime.LoadRegistry(host)
 	if err != nil {
 		log.Fatalf("Failed to load settings: %v", err)
 	}
-	defer cl.Close()
 
-	s := mcpserver.NewMCPServer(cl)
+	s := mcpserver.NewMCPServer(reg)
 
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatalf("Server error: %v", err)

@@ -2,6 +2,7 @@ package formatting
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -35,29 +36,10 @@ func CallToolResultFromRecord(title, summary string, record map[string]any, pref
 	return result, nil
 }
 
-func CallToolResultText(text string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
-	}
-}
-
-func CallToolResultError(msg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: msg}},
-	}
-}
-
 func renderKeyValueTable(record map[string]any, preferredFields []string) []string {
 	ordered := append([]string{}, preferredFields...)
 	for k := range record {
-		found := false
-		for _, pf := range preferredFields {
-			if pf == k {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(preferredFields, k)
 		if !found {
 			ordered = append(ordered, k)
 		}
@@ -99,22 +81,24 @@ func renderMarkdownTableMulti(headers []string, rows [][]string) []string {
 	line := "| " + strings.Join(headers, " | ") + " |"
 	lines = append(lines, line)
 
-	sep := "|"
+	var sep strings.Builder
+	sep.WriteString("|")
 	for range headers {
-		sep += " --- |"
+		sep.WriteString(" --- |")
 	}
-	lines = append(lines, sep)
+	lines = append(lines, sep.String())
 
 	if len(rows) == 0 {
-		empty := "| "
+		var empty strings.Builder
+		empty.WriteString("| ")
 		for i := range headers {
 			if i > 0 {
-				empty += " | "
+				empty.WriteString(" | ")
 			}
-			empty += EMPTY_DISPLAY
+			empty.WriteString(EMPTY_DISPLAY)
 		}
-		empty += " |"
-		lines = append(lines, empty)
+		empty.WriteString(" |")
+		lines = append(lines, empty.String())
 		return lines
 	}
 

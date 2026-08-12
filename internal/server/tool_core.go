@@ -2,38 +2,23 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
 	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
-	"github.com/Delnegend/mikrotik-mcp/internal/filters"
 	"github.com/Delnegend/mikrotik-mcp/internal/formatting"
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
+	"github.com/itchyny/gojq"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// scpChecker is an interface for checking SCP connectivity, used by healthcheck.
-type scpChecker interface {
-	CheckConnection() (map[string]any, error)
-}
-
-// Package-level variables for healthcheck dependencies.
-// Swappable in tests via save/swap/defer-restore pattern.
-var (
-	hcLoadFileTransferSettings = downloads.LoadFileTransferSettings
-	hcNewSCPFileDownloader     = func(s *downloads.FileTransferSettings) scpChecker {
-		return downloads.NewSCPFileDownloader(s)
-	}
-	hcProbeSSHFingerprint        = downloads.ProbeSSHFingerprint
-	hcCheckPasswordRotationReady = downloads.CheckPasswordRotationReady
-	hcResolveSCPPrivateKeyPath   = downloads.ResolveSCPPrivateKeyPath
-)
-
-func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
+func registerCoreTools(s *server.MCPServer, api *API) {
 	addTool(s, mcp.NewTool("resource_print",
 		mcp.WithDescription("Run a generic RouterOS print command and optionally apply jq to the normalized array response. Use slash-separated paths, e.g. \"interface/list\" or \"ip/firewall/nat\"."),
 		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
@@ -41,33 +26,33 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithArray("queries", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Optional query filters")),
 		mcp.WithObject("attributes", mcp.Description("Optional print attributes")),
 		mcp.WithString("jq_filter", mcp.Description("Optional jq filter expression")),
-	), handlerResourcePrint(cl))
+	), handlerResourcePrint(api))
 
 	addTool(s, mcp.NewTool("resource_add",
 		mcp.WithDescription("Run a generic RouterOS add command for a menu path. Use slash-separated paths, e.g. \"interface/bridge/port\" or \"ip/firewall/nat\"."),
 		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
 		mcp.WithObject("attributes", mcp.Description("Optional RouterOS attributes")),
-	), handlerResourceAdd(cl))
+	), handlerResourceAdd(api))
 
 	addTool(s, mcp.NewTool("resource_set",
 		mcp.WithDescription("Run a generic RouterOS set command for a menu path and item id. Use slash-separated paths, e.g. \"ip/firewall/nat\" or \"interface/bridge/port\"."),
 		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
 		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
 		mcp.WithObject("attributes", mcp.Description("Optional RouterOS attributes")),
-	), handlerResourceSet(cl))
+	), handlerResourceSet(api))
 
 	addTool(s, mcp.NewTool("resource_remove",
 		mcp.WithDescription("Run a generic RouterOS remove command for a menu path and item id. Use slash-separated paths, e.g. \"ip/firewall/nat\" or \"interface/bridge/port\"."),
 		mcp.WithString("menu", mcp.Required(), mcp.Description("RouterOS menu path (e.g. ip/address, interface/bridge/port)")),
 		mcp.WithString("item_id", mcp.Required(), mcp.Description("RouterOS item id")),
-	), handlerResourceRemove(cl))
+	), handlerResourceRemove(api))
 
 	addTool(s, mcp.NewTool("command_run",
 		mcp.WithDescription("Run a generic RouterOS command path and return normalized output. Use slash-separated paths, e.g. \"/tool/ping\" or \"/system/backup/save\"."),
 		mcp.WithString("command", mcp.Required(), mcp.Description("RouterOS command path")),
 		mcp.WithObject("attributes", mcp.Description("Optional command attributes")),
 		mcp.WithArray("queries", mcp.Items(map[string]any{"type": "string"}), mcp.Description("Optional query filters")),
-	), handlerCommandRun(cl))
+	), handlerCommandRun(api))
 
 	addTool(s, mcp.NewTool("resource_listen",
 		mcp.WithDescription("Listen for changes on a RouterOS menu and return a bounded batch of events. Use slash-separated paths, e.g. \"interface\" or \"ip/firewall/nat\"."),
@@ -77,12 +62,12 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithObject("attributes", mcp.Description("Optional listen attributes")),
 		mcp.WithString("tag", mcp.Description("Optional tag for the listen session")),
 		mcp.WithNumber("max_events", mcp.Description("Maximum number of events to collect (default 10)")),
-	), handlerResourceListen(cl))
+	), handlerResourceListen(api))
 
 	addTool(s, mcp.NewTool("command_cancel",
 		mcp.WithDescription("Cancel a tagged long-running RouterOS API command."),
 		mcp.WithString("tag", mcp.Required(), mcp.Description("Tag of the command to cancel")),
-	), handlerCommandCancel(cl))
+	), handlerCommandCancel(api))
 
 	// Ping and traceroute have parameters
 	addTool(s, mcp.NewTool("tool_ping",
@@ -92,7 +77,7 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("interval", mcp.Description("Ping interval")),
 		mcp.WithString("interface", mcp.Description("Source interface")),
 		mcp.WithNumber("packet_size", mcp.Description("Packet size")),
-	), handlerToolPing(cl))
+	), handlerToolPing(api))
 
 	addTool(s, mcp.NewTool("tool_traceroute",
 		mcp.WithDescription("Run a bounded traceroute from the router and return hop results."),
@@ -102,103 +87,110 @@ func registerCoreTools(s *server.MCPServer, cl *client.RouterOSClient) {
 		mcp.WithString("interval", mcp.Description("Probe interval")),
 		mcp.WithString("interface", mcp.Description("Source interface")),
 		mcp.WithNumber("packet_size", mcp.Description("Packet size")),
-	), handlerToolTraceroute(cl))
+	), handlerToolTraceroute(api))
 
 	addTool(s, mcp.NewTool("dns_resolve",
 		mcp.WithDescription("Resolve a DNS name from the router, optionally using a specific DNS server."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("DNS name to resolve")),
 		mcp.WithString("server", mcp.Description("Optional DNS server to use")),
-	), handlerDNSResolve(cl))
+	), handlerDNSResolve(api))
 
 	addTool(s, mcp.NewTool("interface_monitor",
 		mcp.WithDescription("Run a one-shot interface traffic monitor and return current counters and rates."),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Interface name")),
-	), handlerInterfaceMonitor(cl))
+	), handlerInterfaceMonitor(api))
 
 	addTool(s, mcp.NewTool("system_resource_get",
 		mcp.WithDescription("Get RouterOS system resource details."),
-	), handlerSystemResourceGet(cl))
+	), handlerSystemResourceGet(api))
 
 	addTool(s, mcp.NewTool("system_identity_get",
 		mcp.WithDescription("Get the RouterOS system identity."),
-	), handlerSystemIdentityGet(cl))
+	), handlerSystemIdentityGet(api))
 
 	addTool(s, mcp.NewTool("system_clock_get",
 		mcp.WithDescription("Get the RouterOS system clock settings."),
-	), handlerSystemClockGet(cl))
+	), handlerSystemClockGet(api))
 
 	addTool(s, mcp.NewTool("healthcheck",
 		mcp.WithDescription("Check whether the MCP can fetch RouterOS API data and connect to SCP."),
-	), handlerHealthcheck(cl))
+	), handlerHealthcheck(api))
 
 	addTool(s, mcp.NewTool("interface_list",
 		mcp.WithDescription("List network interfaces with optional status filters."),
 		mcp.WithBoolean("running_only", mcp.Description("Only return running interfaces")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), handlerInterfaceList(cl))
+	), handlerInterfaceList(api))
 
 	addTool(s, mcp.NewTool("interface_get",
 		mcp.WithDescription("Get one interface by name or RouterOS item id."),
 		mcp.WithString("name", mcp.Description("Interface name")),
 		mcp.WithString("item_id", mcp.Description("RouterOS item id")),
-	), handlerInterfaceGet(cl))
+	), handlerInterfaceGet(api))
 
 	addTool(s, mcp.NewTool("ip_address_list",
 		mcp.WithDescription("List IP addresses with optional interface and disabled filters."),
 		mcp.WithString("interface", mcp.Description("Filter by interface")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), handlerIPAddressList(cl))
+	), handlerIPAddressList(api))
 
 	addTool(s, mcp.NewTool("ip_address_get",
 		mcp.WithDescription("Get one IP address by address or RouterOS item id."),
 		mcp.WithString("address", mcp.Description("IP address")),
 		mcp.WithString("item_id", mcp.Description("RouterOS item id")),
-	), handlerIPAddressGet(cl))
+	), handlerIPAddressGet(api))
 
 	addTool(s, mcp.NewTool("ip_route_list",
 		mcp.WithDescription("List IP routes with optional destination and disabled filters."),
 		mcp.WithString("dst_address", mcp.Description("Filter by destination address")),
 		mcp.WithBoolean("disabled", mcp.Description("Filter by disabled state")),
-	), handlerIPRouteList(cl))
+	), handlerIPRouteList(api))
 
 	addTool(s, mcp.NewTool("ip_route_get",
 		mcp.WithDescription("Get one IP route by destination or RouterOS item id."),
 		mcp.WithString("dst_address", mcp.Description("Destination address")),
 		mcp.WithString("item_id", mcp.Description("RouterOS item id")),
-	), handlerIPRouteGet(cl))
+	), handlerIPRouteGet(api))
 
 	addTool(s, mcp.NewTool("dhcp_lease_list",
 		mcp.WithDescription("List DHCP leases with optional address, MAC, and active filters."),
 		mcp.WithString("address", mcp.Description("Filter by address")),
 		mcp.WithString("mac_address", mcp.Description("Filter by MAC address")),
 		mcp.WithBoolean("active_only", mcp.Description("Only return active (bound) leases")),
-	), handlerDHCPLeaseList(cl))
+	), handlerDHCPLeaseList(api))
 
 	addTool(s, mcp.NewTool("dhcp_server_list",
 		mcp.WithDescription("List configured DHCP servers."),
-	), handlerDHCPServerList(cl))
+	), handlerDHCPServerList(api))
 
 	addTool(s, mcp.NewTool("dhcp_network_list",
 		mcp.WithDescription("List configured DHCP networks."),
-	), handlerDHCPNetworkList(cl))
+	), handlerDHCPNetworkList(api))
 
 	addTool(s, mcp.NewTool("dns_get",
 		mcp.WithDescription("Get RouterOS DNS settings."),
-	), handlerDNSGet(cl))
+	), handlerDNSGet(api))
 
 	addTool(s, mcp.NewTool("dns_set",
 		mcp.WithDescription("Update RouterOS DNS settings."),
 		mcp.WithArray("servers", mcp.Items(map[string]any{"type": "string"}), mcp.Description("DNS server addresses")),
 		mcp.WithBoolean("allow_remote_requests", mcp.Description("Allow remote DNS requests")),
 		mcp.WithString("cache_size", mcp.Description("DNS cache size")),
-	), handlerDNSSet(cl))
+	), handlerDNSSet(api))
 }
 
 // ---- Helper functions for argument extraction ----
 
 func argMap(req mcp.CallToolRequest) map[string]any {
 	m, _ := req.Params.Arguments.(map[string]any)
-	return m
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		if k == "device" {
+			continue // control arg, never sent to the router
+		}
+		result[k] = v
+	}
+	return result
 }
 
 func argString(req mcp.CallToolRequest, key, defaultVal string) string {
@@ -255,6 +247,52 @@ func argObject(req mcp.CallToolRequest, key string) map[string]any {
 	return m
 }
 
+func argAttributes(req mcp.CallToolRequest, controlKeys ...string) map[string]any {
+	if attrs := argObject(req, "attributes"); attrs != nil {
+		return attrs
+	}
+	return stripControlKeys(argMap(req), controlKeys...)
+}
+
+func printSingleRecord(cl *client.RouterOSClient, menu string, queries []string, attrs map[string]any, entityName string) (map[string]string, error) {
+	items, err := cl.Print(menu, nil, queries, attrs)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no matching %s found", entityName)
+	}
+	if len(items) > 1 {
+		return nil, fmt.Errorf("multiple %s records matched", entityName)
+	}
+	return items[0], nil
+}
+
+func applyJQFilter(payload any, jqFilter string) (any, error) {
+	query, err := gojq.Parse(jqFilter)
+	if err != nil {
+		return nil, fmt.Errorf("invalid jq_filter: %v", err)
+	}
+
+	iter := query.Run(payload)
+	var results []any
+	for {
+		v, ok := iter.Next()
+		if !ok {
+			break
+		}
+		if err, ok := v.(error); ok {
+			return nil, fmt.Errorf("jq_filter evaluation failed: %v", err)
+		}
+		results = append(results, v)
+	}
+
+	if len(results) == 1 {
+		return results[0], nil
+	}
+	return results, nil
+}
+
 func addTool(s *server.MCPServer, tool mcp.Tool, handler server.ToolHandlerFunc) {
 	s.AddTool(tool, recoverHandler(handler))
 }
@@ -277,9 +315,7 @@ func recoverHandler(h server.ToolHandlerFunc) server.ToolHandlerFunc {
 
 func stripControlKeys(attrs map[string]any, keys ...string) map[string]any {
 	result := make(map[string]any, len(attrs))
-	for k, v := range attrs {
-		result[k] = v
-	}
+	maps.Copy(result, attrs)
 	for _, k := range keys {
 		delete(result, k)
 	}
@@ -288,32 +324,30 @@ func stripControlKeys(attrs map[string]any, keys ...string) map[string]any {
 
 // ---- Handler implementations ----
 
-func handlerResourcePrint(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerResourcePrint(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		menu := argString(req, "menu", "")
 		proplist := argStringSlice(req, "proplist")
 		queries := argStringSlice(req, "queries")
-		attrs := argObject(req, "attributes")
-		if attrs == nil {
-			attrs = stripControlKeys(argMap(req), "menu", "proplist", "queries", "jq_filter")
-		}
+		attrs := argAttributes(req, "menu", "proplist", "queries", "jq_filter")
 		jqFilter := argString(req, "jq_filter", "")
 
-		items, err := helpers.PrintRecords(cl, menu, proplist, queries, attrs)
+		items, err := cl.Print(menu, proplist, queries, attrs)
 		if err != nil {
 			return nil, err
 		}
 
 		if jqFilter != "" {
 			var anyItems []any
-			for _, item := range items {
-				m := make(map[string]any)
-				for k, v := range item {
-					m[k] = v
-				}
+			for _, m := range helpers.RecordsAsAny(items) {
 				anyItems = append(anyItems, m)
 			}
-			filtered, err := filters.ApplyJQFilter(anyItems, jqFilter)
+			filtered, err := applyJQFilter(anyItems, jqFilter)
 			if err != nil {
 				return nil, err
 			}
@@ -324,14 +358,11 @@ func handlerResourcePrint(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerResourceAdd(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerResourceAdd(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		menu := argString(req, "menu", "")
-		attrs := argObject(req, "attributes")
-		if attrs == nil {
-			attrs = stripControlKeys(argMap(req), "menu")
-		}
-		result, err := cl.Add(menu, attrs)
+		attrs := argAttributes(req, "menu")
+		result, err := api.add(req, menu, attrs)
 		if err != nil {
 			return nil, err
 		}
@@ -339,18 +370,15 @@ func handlerResourceAdd(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerResourceSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerResourceSet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		menu := argString(req, "menu", "")
 		itemID, err := helpers.NormalizeRequiredString(argString(req, "item_id", ""), "item_id")
 		if err != nil {
 			return nil, err
 		}
-		attrs := argObject(req, "attributes")
-		if attrs == nil {
-			attrs = stripControlKeys(argMap(req), "menu", "item_id")
-		}
-		result, err := cl.Set(menu, itemID, attrs)
+		attrs := argAttributes(req, "menu", "item_id")
+		result, err := api.set(req, menu, itemID, attrs)
 		if err != nil {
 			return nil, err
 		}
@@ -358,14 +386,14 @@ func handlerResourceSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerResourceRemove(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerResourceRemove(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		menu := argString(req, "menu", "")
 		itemID, err := helpers.NormalizeRequiredString(argString(req, "item_id", ""), "item_id")
 		if err != nil {
 			return nil, err
 		}
-		result, err := cl.Remove(menu, itemID)
+		result, err := api.remove(req, menu, itemID)
 		if err != nil {
 			return nil, err
 		}
@@ -373,15 +401,12 @@ func handlerResourceRemove(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerCommandRun(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerCommandRun(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		command := argString(req, "command", "")
 		queries := argStringSlice(req, "queries")
-		attrs := argObject(req, "attributes")
-		if attrs == nil {
-			attrs = stripControlKeys(argMap(req), "command", "queries")
-		}
-		result, err := cl.Run(command, attrs, queries, "")
+		attrs := argAttributes(req, "command", "queries")
+		result, err := api.run(req, command, attrs, queries)
 		if err != nil {
 			return nil, err
 		}
@@ -389,15 +414,17 @@ func handlerCommandRun(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerResourceListen(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerResourceListen(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		menu := argString(req, "menu", "")
 		proplist := argStringSlice(req, "proplist")
 		queries := argStringSlice(req, "queries")
-		attrs := argObject(req, "attributes")
-		if attrs == nil {
-			attrs = stripControlKeys(argMap(req), "menu", "proplist", "queries", "tag", "max_events")
-		}
+		attrs := argAttributes(req, "menu", "proplist", "queries", "tag", "max_events")
 		tag := argString(req, "tag", "")
 		maxEvents := int(argFloat(req, "max_events", 10))
 		if maxEvents < 1 {
@@ -405,22 +432,40 @@ func handlerResourceListen(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 
 		var result *client.ListenResult
-		err := cl.Isolated(func(iso *client.RouterOSClient) error {
+		err = cl.Isolated(func(iso *client.RouterOSClient) error {
 			var listenErr error
-			result, listenErr = iso.Listen(menu, proplist, queries, attrs, tag, maxEvents)
+			result, listenErr = iso.ListenContext(ctx, menu, proplist, queries, attrs, tag, maxEvents)
 			return listenErr
 		})
 		if err != nil {
 			return nil, err
 		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 
-		text := fmt.Sprintf("tag=%s events=%d cancelled=%v", result.Tag, len(result.Records), result.Cancelled)
-		return mcp.NewToolResultText(text), nil
+		records := helpers.RecordsAsAny(result.Records)
+		text := fmt.Sprintf("tag=%s events=%d cancelled=%v\n\n%s",
+			result.Tag, len(result.Records), result.Cancelled, helpers.JSONCompact(records))
+		out := mcp.NewToolResultText(text)
+		out.Meta = mcp.NewMetaFromMap(map[string]any{
+			"structuredContent": map[string]any{
+				"tag":       result.Tag,
+				"cancelled": result.Cancelled,
+				"events":    records,
+			},
+		})
+		return out, nil
 	}
 }
 
-func handlerCommandCancel(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerCommandCancel(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		tag, err := helpers.NormalizeRequiredString(argString(req, "tag", ""), "tag")
 		if err != nil {
 			return nil, err
@@ -433,8 +478,13 @@ func handlerCommandCancel(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerToolPing(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerToolPing(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		address := argString(req, "address", "")
 		count := int(argFloat(req, "count", 4))
 		interval := argString(req, "interval", "")
@@ -466,8 +516,8 @@ func handlerToolPing(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 
 		var records []map[string]string
-		err := cl.Isolated(func(iso *client.RouterOSClient) error {
-			result, runErr := iso.Run("/tool/ping", attrs, nil, "")
+		err = cl.Isolated(func(iso *client.RouterOSClient) error {
+			result, runErr := iso.RunContext(ctx, "/tool/ping", attrs, nil, "")
 			if runErr != nil {
 				return runErr
 			}
@@ -480,16 +530,7 @@ func handlerToolPing(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			return nil, err
 		}
 
-		var anyItems []map[string]any
-		for _, r := range records {
-			m := make(map[string]any)
-			for k, v := range r {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
-		}
-
-		return formatting.CallToolResultFromRecords("Ping "+address, anyItems, "probe",
+		return formatting.CallToolResultFromRecords("Ping "+address, helpers.RecordsAsAny(records), "probe",
 			[][2]string{
 				{"seq", "Seq"}, {"host", "Host"}, {"size", "Size"},
 				{"ttl", "TTL"}, {"time", "Time"}, {"status", "Status"},
@@ -497,8 +538,13 @@ func handlerToolPing(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerToolTraceroute(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerToolTraceroute(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		address := argString(req, "address", "")
 		count := int(argFloat(req, "count", 3))
 		maxHops := int(argFloat(req, "max_hops", 30))
@@ -534,8 +580,8 @@ func handlerToolTraceroute(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 
 		var records []map[string]string
-		err := cl.Isolated(func(iso *client.RouterOSClient) error {
-			result, runErr := iso.Run("/tool/traceroute", attrs, nil, "")
+		err = cl.Isolated(func(iso *client.RouterOSClient) error {
+			result, runErr := iso.RunContext(ctx, "/tool/traceroute", attrs, nil, "")
 			if runErr != nil {
 				return runErr
 			}
@@ -548,16 +594,7 @@ func handlerToolTraceroute(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			return nil, err
 		}
 
-		var anyItems []map[string]any
-		for _, r := range records {
-			m := make(map[string]any)
-			for k, v := range r {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
-		}
-
-		return formatting.CallToolResultFromRecords("Traceroute "+address, anyItems, "hop",
+		return formatting.CallToolResultFromRecords("Traceroute "+address, helpers.RecordsAsAny(records), "hop",
 			[][2]string{
 				{"hop", "Hop"}, {"host", "Host"}, {"address", "Address"},
 				{"loss", "Loss"}, {"last", "Last"}, {"avg", "Avg"},
@@ -566,10 +603,19 @@ func handlerToolTraceroute(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerDNSResolve(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerDNSResolve(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		name := argString(req, "name", "")
 		server := argString(req, "server", "")
+
+		if strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("name is required")
+		}
 
 		attrs := map[string]any{"domain-name": name}
 		if server != "" {
@@ -577,9 +623,9 @@ func handlerDNSResolve(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 
 		var result any
-		err := cl.Isolated(func(iso *client.RouterOSClient) error {
+		err = cl.Isolated(func(iso *client.RouterOSClient) error {
 			var runErr error
-			result, runErr = iso.Run("/resolve", attrs, nil, "")
+			result, runErr = iso.RunContext(ctx, "/resolve", attrs, nil, "")
 			return runErr
 		})
 		if err != nil {
@@ -612,15 +658,23 @@ func handlerDNSResolve(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerInterfaceMonitor(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerInterfaceMonitor(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		name := argString(req, "name", "")
+		if strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("name is required")
+		}
 		attrs := map[string]any{"interface": name, "once": true}
 
 		var result any
-		err := cl.Isolated(func(iso *client.RouterOSClient) error {
+		err = cl.Isolated(func(iso *client.RouterOSClient) error {
 			var runErr error
-			result, runErr = iso.Run("/interface/monitor-traffic", attrs, nil, "")
+			result, runErr = iso.RunContext(ctx, "/interface/monitor-traffic", attrs, nil, "")
 			return runErr
 		})
 		if err != nil {
@@ -633,9 +687,7 @@ func handlerInterfaceMonitor(cl *client.RouterOSClient) server.ToolHandlerFunc {
 				data[k] = v
 			}
 		} else if m, ok := result.(map[string]any); ok {
-			for k, v := range m {
-				data[k] = v
-			}
+			maps.Copy(data, m)
 		}
 
 		rxRate := fmt.Sprint(data["rx-bits-per-second"])
@@ -648,9 +700,14 @@ func handlerInterfaceMonitor(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerSystemResourceGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerSystemResourceGet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		record, err := helpers.PrintSingleRecord(cl, "/system/resource", nil, nil, "system resource")
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
+		record, err := printSingleRecord(cl, "/system/resource", nil, nil, "system resource")
 		if err != nil {
 			return nil, err
 		}
@@ -665,9 +722,14 @@ func handlerSystemResourceGet(cl *client.RouterOSClient) server.ToolHandlerFunc 
 	}
 }
 
-func handlerSystemIdentityGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerSystemIdentityGet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		record, err := helpers.PrintSingleRecord(cl, "/system/identity", nil, nil, "system identity")
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
+		record, err := printSingleRecord(cl, "/system/identity", nil, nil, "system identity")
 		if err != nil {
 			return nil, err
 		}
@@ -679,9 +741,14 @@ func handlerSystemIdentityGet(cl *client.RouterOSClient) server.ToolHandlerFunc 
 	}
 }
 
-func handlerSystemClockGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerSystemClockGet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		record, err := helpers.PrintSingleRecord(cl, "/system/clock", nil, nil, "system clock")
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
+		record, err := printSingleRecord(cl, "/system/clock", nil, nil, "system clock")
 		if err != nil {
 			return nil, err
 		}
@@ -695,8 +762,13 @@ func handlerSystemClockGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerHealthcheck(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerHealthcheck(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		timestamp := time.Now().UTC().Format(time.RFC3339)
 		data := map[string]any{
 			"timestamp":   timestamp,
@@ -722,7 +794,7 @@ func handlerHealthcheck(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			"resolved_scp_host":          os.Getenv("MIKROTIK_SCP_HOST"),
 			"scp_credentials_configured": os.Getenv("MIKROTIK_SCP_USER") != "" || os.Getenv("MIKROTIK_USER") != "",
 		}
-		if scpKey, keyErr := hcResolveSCPPrivateKeyPath(); keyErr != nil {
+		if scpKey, keyErr := downloads.ResolveSCPPrivateKeyPath(); keyErr != nil {
 			config["scp_key_path_error"] = keyErr.Error()
 		} else if scpKey != "" {
 			config["scp_key_path"] = scpKey
@@ -774,7 +846,7 @@ func probeAPI(cl *client.RouterOSClient) map[string]any {
 		"tls":  cl.UseSSL(),
 	}
 
-	identity, err := helpers.PrintSingleRecord(cl, "/system/identity", nil, nil, "system identity")
+	identity, err := printSingleRecord(cl, "/system/identity", nil, nil, "system identity")
 	if err != nil {
 		result["ok"] = false
 		result["status"] = "failed"
@@ -803,7 +875,7 @@ func probeSCP(cl *client.RouterOSClient) map[string]any {
 	startedAt := time.Now()
 	result := map[string]any{}
 
-	settings, err := hcLoadFileTransferSettings(cl.Host())
+	settings, err := downloads.LoadFileTransferSettings(cl.Host())
 	if err != nil {
 		result["ok"] = false
 		result["status"] = "failed"
@@ -827,7 +899,7 @@ func probeSCP(cl *client.RouterOSClient) map[string]any {
 		return result
 	}
 
-	check, err := hcNewSCPFileDownloader(settings).CheckConnection()
+	check, err := downloads.NewSCPFileDownloader(settings).CheckConnection()
 	if err != nil {
 		result["ok"] = false
 		result["status"] = "failed"
@@ -849,7 +921,7 @@ func probeSCP(cl *client.RouterOSClient) map[string]any {
 }
 
 func probeSSHServerIdentity(host string, port int) map[string]any {
-	fingerprint, err := hcProbeSSHFingerprint(host, port, 10*time.Second)
+	fingerprint, err := downloads.ProbeSSHFingerprint(host, port, 10*time.Second)
 	if err != nil {
 		return map[string]any{
 			"status":  "failed",
@@ -905,7 +977,7 @@ func probePasswordless(cl *client.RouterOSClient, scpResult map[string]any) map[
 	}
 
 	targetUser := os.Getenv("MIKROTIK_USER")
-	probe, err := hcCheckPasswordRotationReady(cl.Host(), targetUser)
+	probe, err := downloads.CheckPasswordRotationReady(cl.Host(), targetUser)
 	if err != nil {
 		return map[string]any{
 			"ok":          false,
@@ -927,6 +999,20 @@ func probePasswordless(cl *client.RouterOSClient, scpResult map[string]any) map[
 }
 
 func classifyAPIError(err error) string {
+	var rosErr *client.RouterOSError
+	if errors.As(err, &rosErr) {
+		if strings.Contains(rosErr.Message, "user name or password") || strings.Contains(rosErr.Message, "login") {
+			return "api.auth_failed"
+		}
+	}
+	switch {
+	case errors.Is(err, client.ErrRouterOSAuthError):
+		return "api.auth_failed"
+	case errors.Is(err, client.ErrRouterOSTransportError):
+		return "api.connect_failed"
+	case errors.Is(err, client.ErrRouterOSFatalError):
+		return "api.fatal"
+	}
 	errStr := err.Error()
 	if strings.Contains(errStr, "login") || strings.Contains(errStr, "auth") {
 		return "api.auth_failed"
@@ -941,6 +1027,16 @@ func classifyAPIError(err error) string {
 }
 
 func classifySCPError(err error) string {
+	switch {
+	case errors.Is(err, downloads.ErrSCPConfigMissing):
+		return "scp.config_missing"
+	case errors.Is(err, downloads.ErrSCPAuthFailed):
+		return "scp.auth_failed"
+	case errors.Is(err, downloads.ErrSCPConnectFailed):
+		return "scp.connect_failed"
+	case errors.Is(err, downloads.ErrSCPOperation):
+		return "scp.operation_failed"
+	}
 	errStr := err.Error()
 	if strings.Contains(errStr, "MIKROTIK_SCP_PRIVATE_KEY") || strings.Contains(errStr, "must be set") {
 		return "scp.config_missing"
@@ -968,8 +1064,13 @@ func classifyOverallHealth(apiOK, scpOK, pwdEnabled, pwdOK bool) string {
 	return "failed"
 }
 
-func handlerInterfaceList(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerInterfaceList(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		runningOnly := argBool(req, "running_only", false)
 		disabled := argBoolNullable(req, "disabled")
 
@@ -982,19 +1083,12 @@ func handlerInterfaceList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			queries = append(queries, "running=true")
 		}
 
-		items, err := helpers.PrintRecords(cl, "/interface", nil, queries, nil)
+		items, err := cl.Print("/interface", nil, queries, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		var anyItems []map[string]any
-		for _, item := range items {
-			m := make(map[string]any)
-			for k, v := range item {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
-		}
+		anyItems := helpers.RecordsAsAny(items)
 
 		return formatting.CallToolResultFromRecords("Interfaces", anyItems, "interface",
 			[][2]string{
@@ -1004,8 +1098,13 @@ func handlerInterfaceList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerInterfaceGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerInterfaceGet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		name := argString(req, "name", "")
 		itemID := argString(req, "item_id", "")
 
@@ -1018,7 +1117,7 @@ func handlerInterfaceGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			queryField = ".id"
 		}
 
-		record, err := helpers.PrintSingleRecord(cl, "/interface", []string{queryField + "=" + value}, nil, "interface")
+		record, err := printSingleRecord(cl, "/interface", []string{queryField + "=" + value}, nil, "interface")
 		if err != nil {
 			return nil, err
 		}
@@ -1030,8 +1129,13 @@ func handlerInterfaceGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerIPAddressList(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerIPAddressList(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		iface := argString(req, "interface", "")
 		disabled := argBoolNullable(req, "disabled")
 
@@ -1044,19 +1148,12 @@ func handlerIPAddressList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 		queries := helpers.BuildEqualityQueries(filters)
 
-		items, err := helpers.PrintRecords(cl, "/ip/address", nil, queries, nil)
+		items, err := cl.Print("/ip/address", nil, queries, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		var anyItems []map[string]any
-		for _, item := range items {
-			m := make(map[string]any)
-			for k, v := range item {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
-		}
+		anyItems := helpers.RecordsAsAny(items)
 
 		return formatting.CallToolResultFromRecords("IP Addresses", anyItems, "IP address",
 			[][2]string{
@@ -1066,8 +1163,13 @@ func handlerIPAddressList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerIPAddressGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerIPAddressGet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		address := argString(req, "address", "")
 		itemID := argString(req, "item_id", "")
 
@@ -1080,7 +1182,7 @@ func handlerIPAddressGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			queryField = ".id"
 		}
 
-		record, err := helpers.PrintSingleRecord(cl, "/ip/address", []string{queryField + "=" + value}, nil, "IP address")
+		record, err := printSingleRecord(cl, "/ip/address", []string{queryField + "=" + value}, nil, "IP address")
 		if err != nil {
 			return nil, err
 		}
@@ -1092,8 +1194,13 @@ func handlerIPAddressGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerIPRouteList(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerIPRouteList(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		dstAddr := argString(req, "dst_address", "")
 		disabled := argBoolNullable(req, "disabled")
 
@@ -1106,19 +1213,12 @@ func handlerIPRouteList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 		}
 		queries := helpers.BuildEqualityQueries(filters)
 
-		items, err := helpers.PrintRecords(cl, "/ip/route", nil, queries, nil)
+		items, err := cl.Print("/ip/route", nil, queries, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		var anyItems []map[string]any
-		for _, item := range items {
-			m := make(map[string]any)
-			for k, v := range item {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
-		}
+		anyItems := helpers.RecordsAsAny(items)
 
 		return formatting.CallToolResultFromRecords("IP Routes", anyItems, "IP route",
 			[][2]string{
@@ -1128,8 +1228,13 @@ func handlerIPRouteList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerIPRouteGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerIPRouteGet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		dstAddr := argString(req, "dst_address", "")
 		itemID := argString(req, "item_id", "")
 
@@ -1142,7 +1247,7 @@ func handlerIPRouteGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			queryField = ".id"
 		}
 
-		record, err := helpers.PrintSingleRecord(cl, "/ip/route", []string{queryField + "=" + value}, nil, "IP route")
+		record, err := printSingleRecord(cl, "/ip/route", []string{queryField + "=" + value}, nil, "IP route")
 		if err != nil {
 			return nil, err
 		}
@@ -1155,8 +1260,13 @@ func handlerIPRouteGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerDHCPLeaseList(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerDHCPLeaseList(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
 		address := argString(req, "address", "")
 		macAddr := argString(req, "mac_address", "")
 		activeOnly := argBool(req, "active_only", false)
@@ -1173,19 +1283,12 @@ func handlerDHCPLeaseList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			queries = append(queries, "status=bound")
 		}
 
-		items, err := helpers.PrintRecords(cl, "/ip/dhcp-server/lease", nil, queries, nil)
+		items, err := cl.Print("/ip/dhcp-server/lease", nil, queries, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		var anyItems []map[string]any
-		for _, item := range items {
-			m := make(map[string]any)
-			for k, v := range item {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
-		}
+		anyItems := helpers.RecordsAsAny(items)
 
 		return formatting.CallToolResultFromRecords("DHCP Leases", anyItems, "DHCP lease",
 			[][2]string{
@@ -1195,20 +1298,18 @@ func handlerDHCPLeaseList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerDHCPServerList(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerDHCPServerList(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		items, err := helpers.PrintRecords(cl, "/ip/dhcp-server", nil, nil, nil)
+		cl, done, err := api.clientFor(req)
 		if err != nil {
 			return nil, err
 		}
-		var anyItems []map[string]any
-		for _, item := range items {
-			m := make(map[string]any)
-			for k, v := range item {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
+		defer done()
+		items, err := cl.Print("/ip/dhcp-server", nil, nil, nil)
+		if err != nil {
+			return nil, err
 		}
+		anyItems := helpers.RecordsAsAny(items)
 		return formatting.CallToolResultFromRecords("DHCP Servers", anyItems, "DHCP server",
 			[][2]string{
 				{"name", "Name"}, {"interface", "Interface"}, {"address-pool", "Address Pool"},
@@ -1217,20 +1318,18 @@ func handlerDHCPServerList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerDHCPNetworkList(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerDHCPNetworkList(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		items, err := helpers.PrintRecords(cl, "/ip/dhcp-server/network", nil, nil, nil)
+		cl, done, err := api.clientFor(req)
 		if err != nil {
 			return nil, err
 		}
-		var anyItems []map[string]any
-		for _, item := range items {
-			m := make(map[string]any)
-			for k, v := range item {
-				m[k] = v
-			}
-			anyItems = append(anyItems, m)
+		defer done()
+		items, err := cl.Print("/ip/dhcp-server/network", nil, nil, nil)
+		if err != nil {
+			return nil, err
 		}
+		anyItems := helpers.RecordsAsAny(items)
 		return formatting.CallToolResultFromRecords("DHCP Networks", anyItems, "DHCP network",
 			[][2]string{
 				{"address", "Address"}, {"gateway", "Gateway"}, {"dns-server", "DNS Server"},
@@ -1239,9 +1338,14 @@ func handlerDHCPNetworkList(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerDNSGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerDNSGet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		record, err := helpers.PrintSingleRecord(cl, "/ip/dns", nil, nil, "DNS settings")
+		cl, done, err := api.clientFor(req)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
+		record, err := printSingleRecord(cl, "/ip/dns", nil, nil, "DNS settings")
 		if err != nil {
 			return nil, err
 		}
@@ -1255,7 +1359,7 @@ func handlerDNSGet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 	}
 }
 
-func handlerDNSSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
+func handlerDNSSet(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		servers := argStringSlice(req, "servers")
 		allowRemote := argBoolNullable(req, "allow_remote_requests")
@@ -1286,7 +1390,7 @@ func handlerDNSSet(cl *client.RouterOSClient) server.ToolHandlerFunc {
 			return mcp.NewToolResultError("At least one DNS setting must be provided"), nil
 		}
 
-		result, err := cl.Run("/ip/dns/set", attrs, nil, "")
+		result, err := api.run(req, "/ip/dns/set", attrs, nil)
 		if err != nil {
 			return nil, err
 		}

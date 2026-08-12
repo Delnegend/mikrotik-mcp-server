@@ -17,11 +17,11 @@ func ClearMikrotikEnv(t *testing.T) {
 	t.Helper()
 	saved := make(map[string]string)
 	for _, pair := range os.Environ() {
-		eq := strings.IndexByte(pair, '=')
-		if eq < 0 {
+		before, _, ok := strings.Cut(pair, "=")
+		if !ok {
 			continue
 		}
-		key := pair[:eq]
+		key := before
 		if strings.HasPrefix(key, "MIKROTIK_") {
 			saved[key] = os.Getenv(key)
 			os.Unsetenv(key)

@@ -9,43 +9,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/Delnegend/mikrotik-mcp/internal/client"
 )
 
 func WorkspaceRoot() string {
 	dir, _ := os.Getwd()
 	return dir
-}
-
-func StringifyValue(value any) string {
-	switch v := value.(type) {
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	default:
-		return fmt.Sprint(v)
-	}
-}
-
-func PrintRecords(cl *client.RouterOSClient, menu string, proplist, queries []string, attrs map[string]any) ([]map[string]string, error) {
-	return cl.Print(menu, proplist, queries, attrs)
-}
-
-func PrintSingleRecord(cl *client.RouterOSClient, menu string, queries []string, attrs map[string]any, entityName string) (map[string]string, error) {
-	items, err := PrintRecords(cl, menu, nil, queries, attrs)
-	if err != nil {
-		return nil, err
-	}
-	if len(items) == 0 {
-		return nil, fmt.Errorf("no matching %s found", entityName)
-	}
-	if len(items) > 1 {
-		return nil, fmt.Errorf("multiple %s records matched", entityName)
-	}
-	return items[0], nil
 }
 
 func BuildEqualityQueries(filters map[string]any) []string {
@@ -54,7 +22,7 @@ func BuildEqualityQueries(filters map[string]any) []string {
 		if value == nil {
 			continue
 		}
-		queries = append(queries, field+"="+StringifyValue(value))
+		queries = append(queries, field+"="+fmt.Sprint(value))
 	}
 	sort.Strings(queries)
 	return queries
@@ -104,19 +72,22 @@ func FileExistsInDirectory(fileName, directory string) bool {
 	return normName == normDir || strings.HasPrefix(normName, normDir+"/")
 }
 
-func NormalizeLocalDirectory(localDir string) (string, error) {
-	root := WorkspaceRoot()
-	if localDir == "" {
+func ResolveLocalPath(root, userPath string) (string, error) {
+	if strings.TrimSpace(userPath) == "" {
 		return filepath.Join(root, "backups"), nil
 	}
-	value := strings.TrimSpace(localDir)
-	if value == "" {
-		return "", fmt.Errorf("local_dir must not be empty")
+	if !filepath.IsAbs(userPath) {
+		userPath = filepath.Join(root, userPath)
 	}
-	if filepath.IsAbs(value) {
-		return value, nil
+	userPath = filepath.Clean(userPath)
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
 	}
-	return filepath.Join(root, value), nil
+	if userPath != rootAbs && !strings.HasPrefix(userPath, rootAbs+string(filepath.Separator)) {
+		return "", fmt.Errorf("local path %q is outside the workspace root %q", userPath, rootAbs)
+	}
+	return userPath, nil
 }
 
 func NormalizeRouterFilePath(routerPath string) (string, error) {
@@ -124,8 +95,10 @@ func NormalizeRouterFilePath(routerPath string) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("router_path is required")
 	}
-	if strings.HasSuffix(value, "/") {
-		return "", fmt.Errorf("router_path must not end with '/'")
+	for part := range strings.SplitSeq(value, "/") {
+		if part == "" || part == "." || part == ".." {
+			return "", fmt.Errorf("router_path must not contain empty, '.' or '..' path segments")
+		}
 	}
 	return value, nil
 }
@@ -239,6 +212,14 @@ func ValuesAsAny(m map[string]string) map[string]any {
 	result := make(map[string]any)
 	for k, v := range m {
 		result[k] = v
+	}
+	return result
+}
+
+func RecordsAsAny(records []map[string]string) []map[string]any {
+	result := make([]map[string]any, 0, len(records))
+	for _, r := range records {
+		result = append(result, ValuesAsAny(r))
 	}
 	return result
 }
