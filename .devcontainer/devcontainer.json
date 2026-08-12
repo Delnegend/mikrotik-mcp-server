@@ -1,0 +1,30 @@
+{
+	"name": "mikrotik-mcp",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"remoteUser": "mikrotik-mcp",
+	"runArgs": [
+		"--hostname",
+		"mikrotik-mcp-devcontainer",
+		"--privileged"
+	],
+	"forwardPorts": [
+		8728,
+		8729,
+		2222,
+		8291,
+		5555
+	],
+	"postCreateCommand": "bash .devcontainer/postinstall.sh",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.go"
+			],
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "bash"
+			}
+		}
+	}
+}
