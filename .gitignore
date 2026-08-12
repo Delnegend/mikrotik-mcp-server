@@ -23,6 +23,13 @@ certs/**
 *.out
 mikrotik-mcp
 
+# CHR integration-test VM artifacts (scripts/chr)
+scripts/chr/*.img
+scripts/chr/*.img.zip
+scripts/chr/*.qcow2
+scripts/chr/*.pid
+scripts/chr/*.log
+
 # IDE
 .idea/
 *.swp
@@ -32,3 +39,4 @@ mikrotik-mcp
 .agents
 opencode.jsonc
 FEEDBACK.md
+TODO.md
