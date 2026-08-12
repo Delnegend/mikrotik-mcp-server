@@ -24,6 +24,13 @@ import (
 var SSHDial = ssh.Dial
 var NewSFTPClient = sftp.NewClient
 
+var (
+	ErrSCPConfigMissing = errors.New("scp: configuration is incomplete")
+	ErrSCPAuthFailed    = errors.New("scp: authentication failed")
+	ErrSCPConnectFailed = errors.New("scp: connect failed")
+	ErrSCPOperation     = errors.New("scp: operation failed")
+)
+
 type FileTransferSettings struct {
 	Host                 string
 	Username             string
@@ -46,14 +53,14 @@ func NewSCPFileDownloader(settings *FileTransferSettings) *SCPFileDownloader {
 func (d *SCPFileDownloader) CheckConnection() (map[string]any, error) {
 	sshClient, err := d.connect()
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to SCP service on %s:%d: %v",
+		return nil, fmt.Errorf("failed to connect to SCP service on %s:%d: %w",
 			d.settings.Host, d.settings.Port, err)
 	}
 	defer sshClient.Close()
 
 	sftpClient, err := NewSFTPClient(sshClient)
 	if err != nil {
-		return nil, fmt.Errorf("connected to SCP service but directory probe failed: %v", err)
+		return nil, fmt.Errorf("%w: connected to SCP service but directory probe failed: %v", ErrSCPOperation, err)
 	}
 	defer sftpClient.Close()
 
@@ -63,7 +70,7 @@ func (d *SCPFileDownloader) CheckConnection() (map[string]any, error) {
 	}
 	entries, err := sftpClient.ReadDir(wd)
 	if err != nil {
-		return nil, fmt.Errorf("connected to SCP service but directory probe failed: %v", err)
+		return nil, fmt.Errorf("%w: connected to SCP service but directory probe failed: %v", ErrSCPOperation, err)
 	}
 
 	names := make([]string, 0, len(entries))
@@ -92,14 +99,14 @@ func (d *SCPFileDownloader) DownloadFile(routerPath, localPath string) error {
 
 	sshClient, err := d.connect()
 	if err != nil {
-		return fmt.Errorf("failed to connect to SCP service on %s:%d: %v",
+		return fmt.Errorf("failed to connect to SCP service on %s:%d: %w",
 			d.settings.Host, d.settings.Port, err)
 	}
 	defer sshClient.Close()
 
 	sftpClient, err := NewSFTPClient(sshClient)
 	if err != nil {
-		return fmt.Errorf("failed to open SFTP session: %v", err)
+		return fmt.Errorf("%w: failed to open SFTP session: %v", ErrSCPConnectFailed, err)
 	}
 	defer sftpClient.Close()
 
@@ -120,50 +127,69 @@ func (d *SCPFileDownloader) DownloadFile(routerPath, localPath string) error {
 }
 
 func (d *SCPFileDownloader) connect() (*ssh.Client, error) {
+	return dialSSH(d.settings)
+}
+
+func dialSSH(settings *FileTransferSettings) (*ssh.Client, error) {
+	auth, err := authMethods(settings)
+	if err != nil {
+		return nil, err
+	}
+	cb, err := hostKeyCallback(settings)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSCPConfigMissing, err)
+	}
 	config := &ssh.ClientConfig{
-		User:            d.settings.Username,
-		Auth:            d.authMethods(),
-		HostKeyCallback: d.hostKeyCallback(),
-		Timeout:         d.settings.Timeout,
+		User:            settings.Username,
+		Auth:            auth,
+		HostKeyCallback: cb,
+		Timeout:         settings.Timeout,
 	}
 
-	addr := net.JoinHostPort(d.settings.Host, strconv.Itoa(d.settings.Port))
-	return SSHDial("tcp", addr, config)
+	addr := net.JoinHostPort(settings.Host, strconv.Itoa(settings.Port))
+	client, err := SSHDial("tcp", addr, config)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unable to authenticate") {
+			return nil, fmt.Errorf("%w: %v", ErrSCPAuthFailed, err)
+		}
+		return nil, fmt.Errorf("%w: %v", ErrSCPConnectFailed, err)
+	}
+	return client, nil
 }
 
-func (d *SCPFileDownloader) authMethods() []ssh.AuthMethod {
-	if d.settings.PrivateKey != "" {
-		signer := loadPrivateKey(d.settings.PrivateKey, d.settings.KeyPassphrase)
-		return []ssh.AuthMethod{ssh.PublicKeys(signer)}
+func authMethods(settings *FileTransferSettings) ([]ssh.AuthMethod, error) {
+	if settings.PrivateKey != "" {
+		signer, err := loadPrivateKey(settings.PrivateKey, settings.KeyPassphrase)
+		if err != nil {
+			return nil, err
+		}
+		return []ssh.AuthMethod{ssh.PublicKeys(signer)}, nil
 	}
-	if d.settings.Password != "" {
-		return []ssh.AuthMethod{ssh.Password(d.settings.Password)}
+	if settings.Password != "" {
+		return []ssh.AuthMethod{ssh.Password(settings.Password)}, nil
 	}
-	return nil
+	return nil, nil
 }
 
-func (d *SCPFileDownloader) hostKeyCallback() ssh.HostKeyCallback {
-	if d.settings.SSHFingerprintSHA256 != "" {
-		return sha256FingerprintPolicy(d.settings.Host, d.settings.SSHFingerprintSHA256)
+func hostKeyCallback(settings *FileTransferSettings) (ssh.HostKeyCallback, error) {
+	if settings.SSHFingerprintSHA256 != "" {
+		return sha256FingerprintPolicy(settings.Host, settings.SSHFingerprintSHA256), nil
 	}
-	return ssh.InsecureIgnoreHostKey()
+	if helpers.ParseBool(os.Getenv("MIKROTIK_SCP_INSECURE"), false) {
+		return ssh.InsecureIgnoreHostKey(), nil
+	}
+	return nil, errors.New("SSH host key verification is disabled: MIKROTIK_SCP_HOST_FINGERPRINT_SHA256 must be set (or MIKROTIK_SCP_INSECURE=1 to opt out)")
 }
 
-func loadPrivateKey(path, passphrase string) ssh.Signer {
+func loadPrivateKey(path, passphrase string) (ssh.Signer, error) {
 	keyBytes, err := os.ReadFile(path)
 	if err != nil {
-		panic(fmt.Sprintf("cannot read private key: %v", err))
+		return nil, fmt.Errorf("cannot read private key %s: %v", path, err)
 	}
-	var signer ssh.Signer
 	if passphrase != "" {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(passphrase))
-	} else {
-		signer, err = ssh.ParsePrivateKey(keyBytes)
+		return ssh.ParsePrivateKeyWithPassphrase(keyBytes, []byte(passphrase))
 	}
-	if err != nil {
-		panic(fmt.Sprintf("cannot parse private key: %v", err))
-	}
-	return signer
+	return ssh.ParsePrivateKey(keyBytes)
 }
 
 func sha256FingerprintPolicy(hostname string, expected string) ssh.HostKeyCallback {
@@ -255,7 +281,7 @@ func RotateRouterOSPassword(host, username string) (string, error) {
 		return "", err
 	}
 
-	sshClient, err := connectSSH(settings)
+	sshClient, err := dialSSH(settings)
 	if err != nil {
 		return "", fmt.Errorf("failed to rotate password: %v", err)
 	}
@@ -278,7 +304,7 @@ func CheckPasswordRotationReady(host, username string) (map[string]any, error) {
 		return nil, err
 	}
 
-	sshClient, err := connectSSH(settings)
+	sshClient, err := dialSSH(settings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify readiness: %v", err)
 	}
@@ -307,40 +333,27 @@ func CheckPasswordRotationReady(host, username string) (map[string]any, error) {
 }
 
 func generateAPIPassword(length int) (string, error) {
+	if length < 1 {
+		return "", errors.New("password length must be at least 1")
+	}
 	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
-	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		return "", err
-	}
+	max := byte(256 - (256 % len(alphabet)))
 	for i := range b {
-		b[i] = alphabet[b[i]%byte(len(alphabet))]
+		for {
+			if _, err := io.ReadFull(rand.Reader, b[i:i+1]); err != nil {
+				return "", err
+			}
+			if b[i] < max {
+				b[i] = alphabet[b[i]%byte(len(alphabet))]
+				break
+			}
+		}
 	}
 	return string(b), nil
 }
 
 var GenerateAPIPassword = generateAPIPassword
-
-func connectSSH(settings *FileTransferSettings) (*ssh.Client, error) {
-	config := &ssh.ClientConfig{
-		User:            settings.Username,
-		HostKeyCallback: sha256FingerprintPolicy(settings.Host, settings.SSHFingerprintSHA256),
-		Timeout:         settings.Timeout,
-	}
-
-	if settings.PrivateKey != "" {
-		signer := loadPrivateKey(settings.PrivateKey, settings.KeyPassphrase)
-		config.Auth = []ssh.AuthMethod{ssh.PublicKeys(signer)}
-	} else if settings.Password != "" {
-		config.Auth = []ssh.AuthMethod{ssh.Password(settings.Password)}
-	}
-
-	if settings.SSHFingerprintSHA256 == "" {
-		config.HostKeyCallback = ssh.InsecureIgnoreHostKey()
-	}
-
-	addr := net.JoinHostPort(settings.Host, strconv.Itoa(settings.Port))
-	return SSHDial("tcp", addr, config)
-}
 
 func runSSHCommand(client *ssh.Client, command string, timeout time.Duration) (string, error) {
 	session, err := client.NewSession()
@@ -393,26 +406,35 @@ func ProbeSSHFingerprint(host string, port int, timeout time.Duration) (map[stri
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	client, err := SSHDial("tcp", addr, config)
-	if err != nil {
+	if err == nil {
+		client.Close()
+	}
+
+	// The host key is exchanged before authentication, so serverKey is set
+	// even when the probe's deliberately bogus login is rejected. That is the
+	// whole point of the probe: report the key regardless.
+	if serverKey == nil {
 		return map[string]any{
 			"status":  "failed",
-			"message": fmt.Sprintf("Failed to fetch SSH server fingerprint from %s: %v", addr, err),
+			"message": fmt.Sprintf("Failed to obtain SSH host key from %s", addr),
 			"host":    host,
 			"port":    port,
 		}, nil
 	}
-	client.Close()
 
-	keyType := serverKey.Type()
-	fingerprint := ssh.FingerprintSHA256(serverKey)
-	return map[string]any{
+	result := map[string]any{
 		"status":             "ok",
-		"message":            fmt.Sprintf("SSH server fingerprint probe succeeded for %s", addr),
+		"message":            fmt.Sprintf("SSH server fingerprint obtained from %s", addr),
 		"host":               host,
 		"port":               port,
-		"key_type":           keyType,
-		"fingerprint_sha256": fingerprint,
-	}, nil
+		"key_type":           serverKey.Type(),
+		"fingerprint_sha256": ssh.FingerprintSHA256(serverKey),
+	}
+	if err != nil {
+		// Auth failed (expected for a probe); the key was still captured.
+		result["auth"] = "rejected"
+	}
+	return result, nil
 }
 
 func ResolveSCPPrivateKeyPath() (string, error) {
@@ -465,5 +487,26 @@ func NormalizeSSHFingerprint(value string) (string, error) {
 }
 
 func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '$':
+			b.WriteString(`\$`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }

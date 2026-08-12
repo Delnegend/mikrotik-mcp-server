@@ -184,11 +184,15 @@ func TestGenerateAPIPasswordIsRandom(t *testing.T) {
 
 func TestShellQuote(t *testing.T) {
 	result := shellQuote("admin")
-	if result != "'admin'" {
+	if result != `"admin"` {
 		t.Errorf("shellQuote = %q", result)
 	}
 	result = shellQuote("it's/ok")
-	if result != "'it'\\''s/ok'" {
+	if result != `"it's/ok"` {
 		t.Errorf("shellQuote with apostrophe = %q", result)
+	}
+	result = shellQuote(`a"b\c$d`)
+	if result != `"a\"b\\c\$d"` {
+		t.Errorf("shellQuote with special chars = %q", result)
 	}
 }
