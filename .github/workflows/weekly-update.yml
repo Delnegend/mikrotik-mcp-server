@@ -1,4 +1,4 @@
-name: Weekly Update and Release
+name: Weekly Update
 
 on:
   schedule:
@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  actions: write
 
 jobs:
   update:
@@ -26,7 +25,7 @@ jobs:
 
       - name: Update dependencies
         run: |
-          go get -u ./...
+          go get -u=patch ./...
           go mod tidy
 
       - name: Check for changes
@@ -46,33 +45,8 @@ jobs:
           go test ./...
           test -z "$(gofmt -l .)"
 
-      - name: Compute next version
-        id: version
-        if: steps.changes.outputs.changed == 'true' && steps.check.outcome == 'success'
-        run: |
-          latest=$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
-          latest=${latest#v}
-          IFS='.' read -r major minor patch <<< "$latest"
-          echo "new_version=$major.$minor.$((patch + 1))" >> "$GITHUB_OUTPUT"
-
-      - name: Auto-commit and push
-        if: steps.changes.outputs.changed == 'true' && steps.check.outcome == 'success'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "chore(deps): weekly dependency update"
-          git push
-
-      - name: Trigger release
-        if: steps.changes.outputs.changed == 'true' && steps.check.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run release.yml -f release_version=${{ steps.version.outputs.new_version }} -f create_release=true
-
-      - name: Open PR on failure
-        if: steps.changes.outputs.changed == 'true' && steps.check.outcome == 'failure'
+      - name: Open PR for review
+        if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
