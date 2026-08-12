@@ -1,31 +1,51 @@
 package runtime
 
 import (
-	"crypto/rand"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Delnegend/mikrotik-mcp/internal/client"
 	"github.com/Delnegend/mikrotik-mcp/internal/downloads"
 	"github.com/Delnegend/mikrotik-mcp/internal/helpers"
-	"github.com/joho/godotenv"
+	"github.com/Delnegend/mikrotik-mcp/internal/inventory"
 )
 
-var workspaceRoot = WorkspaceRoot
+// LoadRegistry builds the device registry at startup: a fleet when an
+// inventory is configured, otherwise the single device from the flat env.
+func LoadRegistry(host string) (*inventory.Registry, error) {
+	loadEnvFile(filepath.Join(helpers.WorkspaceRoot(), ".env"))
 
-func WorkspaceRoot() string {
-	dir, _ := os.Getwd()
-	return dir
+	if inventory.Configured() {
+		reg, err := inventory.FromEnv()
+		if err != nil {
+			return nil, err
+		}
+		return reg, nil
+	}
+
+	d, err := loadDevice(host)
+	if err != nil {
+		return nil, err
+	}
+	return inventory.Single(*d), nil
 }
 
+// LoadSettings builds the single-device client from the environment.
 func LoadSettings(host string) (*client.RouterOSClient, error) {
-	clearEmptyMikrotikEnvVars()
-	_ = godotenv.Load(filepath.Join(workspaceRoot(), ".env"))
+	loadEnvFile(filepath.Join(helpers.WorkspaceRoot(), ".env"))
 
+	d, err := loadDevice(host)
+	if err != nil {
+		return nil, err
+	}
+	return d.Client(), nil
+}
+
+func loadDevice(host string) (*inventory.Device, error) {
 	username := os.Getenv("MIKROTIK_USER")
 	if username == "" {
 		return nil, fmt.Errorf("MIKROTIK_USER must be set before starting the MCP server")
@@ -46,8 +66,14 @@ func LoadSettings(host string) (*client.RouterOSClient, error) {
 		}
 	}
 
-	useSSL := helpers.ParseBool(os.Getenv("MIKROTIK_API_SSL"), true)
-	tlsVerify := helpers.ParseBool(os.Getenv("MIKROTIK_TLS_VERIFY"), true)
+	useSSL, err := boolFromEnv("MIKROTIK_API_SSL", true)
+	if err != nil {
+		return nil, err
+	}
+	tlsVerify, err := boolFromEnv("MIKROTIK_TLS_VERIFY", true)
+	if err != nil {
+		return nil, err
+	}
 	port := helpers.IntFromEnv("MIKROTIK_API_PORT", 0)
 	if port == 0 {
 		if useSSL {
@@ -56,19 +82,53 @@ func LoadSettings(host string) (*client.RouterOSClient, error) {
 			port = 8728
 		}
 	}
+	timeout := time.Duration(helpers.FloatFromEnv("MIKROTIK_API_TIMEOUT", 10.0) * float64(time.Second))
 
-	tlsCAFiles := LoadTLSCAFiles()
+	sshUser := envOr("MIKROTIK_SCP_USER", username)
+	sshPort := helpers.IntFromEnv("MIKROTIK_SCP_PORT", 22)
 
-	return client.NewRouterOSClient(host, username, password,
-		client.WithTLS(useSSL),
-		client.WithTLSVerify(tlsVerify),
-		client.WithPort(port),
-		client.WithTLSCAFiles(tlsCAFiles),
-	), nil
+	return &inventory.Device{
+		Title:                host,
+		Host:                 host,
+		Port:                 port,
+		Username:             username,
+		Password:             password,
+		APISSL:               useSSL,
+		TLSVerify:            tlsVerify,
+		Timeout:              timeout,
+		TLSCAFiles:           LoadTLSCAFiles(),
+		SSHPort:              sshPort,
+		SSHUsername:          sshUser,
+		SSHFingerprintSHA256: os.Getenv("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256"),
+	}, nil
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// boolFromEnv parses a boolean env var, failing on unrecognized values so a
+// typo cannot silently flip a security-relevant setting.
+func boolFromEnv(key string, defaultVal bool) (bool, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return defaultVal, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true, nil
+	case "0", "false", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s has an unrecognized value %q (expected true/false)", key, raw)
+	}
 }
 
 func LoadTLSCAFiles() []string {
-	certsDir := filepath.Join(workspaceRoot(), "certs")
+	certsDir := filepath.Join(helpers.WorkspaceRoot(), "certs")
 	info, err := os.Stat(certsDir)
 	if err != nil || !info.IsDir() {
 		return nil
@@ -99,39 +159,37 @@ func LoadTLSCAFiles() []string {
 	return files
 }
 
-func clearEmptyMikrotikEnvVars() {
-	for _, env := range os.Environ() {
-		parts := strings.SplitN(env, "=", 2)
-		if len(parts) != 2 {
+func loadEnvFile(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		name, value := parts[0], parts[1]
-		if strings.HasPrefix(name, "MIKROTIK_") && value == "" {
-			os.Unsetenv(name)
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') ||
+			(value[0] == '\'' && value[len(value)-1] == '\'')) {
+			value = value[1 : len(value)-1]
+		}
+		if value == "" {
+			continue
+		}
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
 		}
 	}
 }
 
 func passwordlessEnabled() bool {
 	return helpers.ParseBool(os.Getenv("MIKROTIK_API_PASSWORDLESS_ENABLED"), false)
-}
-
-func startupPasswordlessState() map[string]string {
-	return map[string]string{
-		"status":  os.Getenv("MIKROTIK_STARTUP_PASSWORDLESS_STATUS"),
-		"code":    os.Getenv("MIKROTIK_STARTUP_PASSWORDLESS_CODE"),
-		"message": os.Getenv("MIKROTIK_STARTUP_PASSWORDLESS_MESSAGE"),
-	}
-}
-
-func setStartupPasswordlessState(status, code, message string) {
-	if status == "" {
-		clearStartupPasswordlessState()
-		return
-	}
-	os.Setenv("MIKROTIK_STARTUP_PASSWORDLESS_STATUS", status)
-	os.Setenv("MIKROTIK_STARTUP_PASSWORDLESS_CODE", code)
-	os.Setenv("MIKROTIK_STARTUP_PASSWORDLESS_MESSAGE", message)
 }
 
 func clearStartupPasswordlessState() {
@@ -150,30 +208,11 @@ func resolveStartupAPIPassword(host, username string) (string, error) {
 		return "", fmt.Errorf("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256 must be set before starting passwordless API rotation")
 	}
 
-	password, err := rotateStartupAPIPassword(host, username)
+	password, err := downloads.RotateRouterOSPassword(host, username)
 	if err != nil {
 		return "", fmt.Errorf("startup password rotation failed: %v", err)
 	}
 
 	clearStartupPasswordlessState()
 	return password, nil
-}
-
-var rotateStartupAPIPassword = func(host, username string) (string, error) {
-	return downloads.RotateRouterOSPassword(host, username)
-}
-
-func GenerateAPIPassword(length int) (string, error) {
-	if length < 1 {
-		return "", fmt.Errorf("password length must be at least 1")
-	}
-	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		return "", err
-	}
-	for i := range b {
-		b[i] = alphabet[b[i]%byte(len(alphabet))]
-	}
-	return string(b), nil
 }

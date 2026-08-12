@@ -4,7 +4,6 @@ go 1.25.5
 
 require (
 	github.com/itchyny/gojq v0.12.19
-	github.com/joho/godotenv v1.5.1
 	github.com/mark3labs/mcp-go v0.57.0
 	github.com/pkg/sftp v1.13.11
 	golang.org/x/crypto v0.54.0

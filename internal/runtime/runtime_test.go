@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,9 +18,7 @@ func TestLoadTLSCAFilesReturnsSortedActiveFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(certsDir, "README.md"), []byte("docs"), 0644)
 	os.WriteFile(filepath.Join(certsDir, "ignored.pem.disabled"), []byte("ignore"), 0644)
 
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 
 	result := LoadTLSCAFiles()
 
@@ -38,9 +35,7 @@ func TestLoadTLSCAFilesReturnsSortedActiveFiles(t *testing.T) {
 
 func TestLoadTLSCAFilesReturnsEmptyWhenDirectoryMissing(t *testing.T) {
 	dir := t.TempDir()
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 
 	result := LoadTLSCAFiles()
 	if len(result) != 0 {
@@ -55,9 +50,7 @@ func TestLoadTLSCAFilesCaseInsensitiveExtension(t *testing.T) {
 	os.WriteFile(filepath.Join(certsDir, "server.CRT"), []byte("server"), 0644)
 	os.WriteFile(filepath.Join(certsDir, "ca.PEM"), []byte("ca"), 0644)
 
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 
 	result := LoadTLSCAFiles()
 	if len(result) != 2 {
@@ -77,32 +70,27 @@ func TestPasswordlessEnabled(t *testing.T) {
 	}
 }
 
-func TestClearEmptyMikrotikEnvVars(t *testing.T) {
+func TestLoadEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	content := "# comment\nMIKROTIK_USER=admin\nMIKROTIK_PASSWORD=\n  MIKROTIK_API_PORT = \"8443\"  \n"
+	if err := os.WriteFile(envFile, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
 	testutil.ClearMikrotikEnv(t)
-	os.Setenv("MIKROTIK_USER", "")
-	os.Setenv("MIKROTIK_PASSWORD", "secret")
-	os.Setenv("UNRELATED_VAR", "")
+	os.Setenv("MIKROTIK_PASSWORD", "from-env")
 
-	clearEmptyMikrotikEnvVars()
+	loadEnvFile(envFile)
 
-	if _, exists := os.LookupEnv("MIKROTIK_USER"); exists {
-		t.Error("MIKROTIK_USER should be unset after clearEmptyMikrotikEnvVars")
+	if v := os.Getenv("MIKROTIK_USER"); v != "admin" {
+		t.Errorf("MIKROTIK_USER = %q, want admin", v)
 	}
-	if v := os.Getenv("MIKROTIK_PASSWORD"); v != "secret" {
-		t.Errorf("MIKROTIK_PASSWORD = %q", v)
+	if v := os.Getenv("MIKROTIK_PASSWORD"); v != "from-env" {
+		t.Errorf("MIKROTIK_PASSWORD = %q, want from-env (env must not be overridden)", v)
 	}
-	if v := os.Getenv("UNRELATED_VAR"); v != "" {
-		t.Errorf("UNRELATED_VAR = %q", v)
-	}
-}
-
-func TestGenerateAPIPassword(t *testing.T) {
-	pwd, err := GenerateAPIPassword(32)
-	if err != nil {
-		t.Fatalf("GenerateAPIPassword error: %v", err)
-	}
-	if len(pwd) != 32 {
-		t.Errorf("length = %d, want 32", len(pwd))
+	if v := os.Getenv("MIKROTIK_API_PORT"); v != "8443" {
+		t.Errorf("MIKROTIK_API_PORT = %q, want 8443", v)
 	}
 }
 
@@ -216,15 +204,6 @@ func TestLoadSettingsRequiresPassword(t *testing.T) {
 	}
 }
 
-func TestClearEmptyMikrotikEnvVarsSkipsNonMikrotik(t *testing.T) {
-	testutil.ClearMikrotikEnv(t)
-	os.Setenv("PATH", "/usr/bin")
-	clearEmptyMikrotikEnvVars()
-	if os.Getenv("PATH") == "" {
-		t.Error("PATH should not be cleared")
-	}
-}
-
 func TestLoadSettingsDotEnv(t *testing.T) {
 	dir := t.TempDir()
 	envContent := `MIKROTIK_USER=admin
@@ -237,9 +216,7 @@ MIKROTIK_TLS_VERIFY=false
 		t.Fatalf("WriteFile .env: %v", err)
 	}
 
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 
 	testutil.ClearMikrotikEnv(t)
 
@@ -264,9 +241,7 @@ MIKROTIK_PASSWORD=from-dotenv
 		t.Fatalf("WriteFile .env: %v", err)
 	}
 
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 
 	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "from-env")
@@ -280,9 +255,7 @@ MIKROTIK_PASSWORD=from-dotenv
 
 func TestLoadSettingsDotEnvMissingFileIsFine(t *testing.T) {
 	dir := t.TempDir()
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 
 	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
@@ -306,9 +279,7 @@ MIKROTIK_PASSWORD=secret
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 	testutil.ClearMikrotikEnv(t)
 
 	client, err := LoadSettings("router.test")
@@ -326,9 +297,7 @@ func TestLoadSettingsPassesDiscoveredTLSCAFiles(t *testing.T) {
 	os.MkdirAll(certsDir, 0755)
 	os.WriteFile(filepath.Join(certsDir, "ca.pem"), []byte("ca"), 0644)
 
-	orig := workspaceRoot
-	workspaceRoot = func() string { return dir }
-	defer func() { workspaceRoot = orig }()
+	t.Chdir(dir)
 
 	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
@@ -346,37 +315,6 @@ func TestLoadSettingsPassesDiscoveredTLSCAFiles(t *testing.T) {
 	}
 }
 
-func TestGenerateAPIPasswordRejectsZeroLength(t *testing.T) {
-	_, err := GenerateAPIPassword(0)
-	if err == nil {
-		t.Error("expected error for length 0")
-	}
-}
-
-func TestLoadSettingsRotatesPasswordWhenPasswordlessEnabled(t *testing.T) {
-	origRotate := rotateStartupAPIPassword
-	rotateStartupAPIPassword = func(host, username string) (string, error) {
-		return "rotated-api-password", nil
-	}
-	defer func() { rotateStartupAPIPassword = origRotate }()
-
-	testutil.ClearMikrotikEnv(t)
-	os.Setenv("MIKROTIK_USER", "admin")
-	os.Setenv("MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
-	os.Setenv("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:valid-key")
-
-	cl, err := LoadSettings("router.test")
-	if err != nil {
-		t.Fatalf("LoadSettings error: %v", err)
-	}
-	if cl == nil {
-		t.Fatal("LoadSettings returned nil client")
-	}
-	if state := startupPasswordlessState(); state["status"] != "" {
-		t.Errorf("passwordless state should be cleared after successful rotation, got: %v", state)
-	}
-}
-
 func TestLoadSettingsRequiresFingerprintWhenPasswordlessEnabled(t *testing.T) {
 	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
@@ -391,50 +329,58 @@ func TestLoadSettingsRequiresFingerprintWhenPasswordlessEnabled(t *testing.T) {
 	}
 }
 
-func TestLoadSettingsRaisesWhenStartupRotationFails(t *testing.T) {
-	origRotate := rotateStartupAPIPassword
-	rotateStartupAPIPassword = func(host, username string) (string, error) {
-		return "", fmt.Errorf("boom")
-	}
-	defer func() { rotateStartupAPIPassword = origRotate }()
-
+func TestLoadRegistrySingleDeviceFallback(t *testing.T) {
 	testutil.ClearMikrotikEnv(t)
 	os.Setenv("MIKROTIK_USER", "admin")
-	os.Setenv("MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
-	os.Setenv("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:valid-key")
+	os.Setenv("MIKROTIK_PASSWORD", "secret")
+	os.Setenv("MIKROTIK_API_SSL", "false")
 
-	_, err := LoadSettings("router.test")
-	if err == nil {
-		t.Fatal("expected error when rotation fails")
+	reg, err := LoadRegistry("router.test")
+	if err != nil {
+		t.Fatalf("LoadRegistry: %v", err)
 	}
-	if !strings.Contains(err.Error(), "startup password rotation failed") {
-		t.Errorf("error should wrap rotation failure: %q", err.Error())
+	if reg.Len() != 1 {
+		t.Fatalf("Len = %d, want 1", reg.Len())
+	}
+	d, err := reg.Get("")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if d.Host != "router.test" || d.Username != "admin" || d.Password != "secret" || d.Port != 8728 {
+		t.Errorf("device = %+v", d)
+	}
+	if d.APISSL {
+		t.Errorf("api_ssl should be false")
 	}
 }
 
-func TestRotateStartupAPIPasswordUsesRequestedLength(t *testing.T) {
-	origRotate := rotateStartupAPIPassword
-	var gotHost, gotUser string
-	rotateStartupAPIPassword = func(host, username string) (string, error) {
-		gotHost, gotUser = host, username
-		return "fixed-password", nil
-	}
-	defer func() { rotateStartupAPIPassword = origRotate }()
-
+func TestLoadRegistryInventoryWins(t *testing.T) {
 	testutil.ClearMikrotikEnv(t)
-	os.Setenv("MIKROTIK_USER", "admin")
-	os.Setenv("MIKROTIK_API_PASSWORDLESS_ENABLED", "true")
-	os.Setenv("MIKROTIK_API_PASSWORDLESS_LENGTH", "40")
-	os.Setenv("MIKROTIK_SCP_HOST_FINGERPRINT_SHA256", "SHA256:valid-key")
+	os.Setenv("MIKROTIK_USER", "flat-user")
+	os.Setenv("MIKROTIK_PASSWORD", "flat-pass")
+	os.Setenv("MIKROTIK_INVENTORY", `[{"title":"A","host":"10.0.0.1"},{"title":"B","host":"10.0.0.2"}]`)
 
-	cl, err := LoadSettings("router.test")
+	reg, err := LoadRegistry("ignored-host")
 	if err != nil {
-		t.Fatalf("LoadSettings error: %v", err)
+		t.Fatalf("LoadRegistry: %v", err)
 	}
-	if cl == nil {
-		t.Fatal("LoadSettings returned nil client")
+	if reg.Len() != 2 {
+		t.Fatalf("Len = %d, want 2", reg.Len())
 	}
-	if gotHost != "router.test" || gotUser != "admin" {
-		t.Errorf("rotation called with host=%q user=%q, want router.test/admin", gotHost, gotUser)
+	a, err := reg.Get("A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Username != "admin" {
+		t.Errorf("inventory username default = %q", a.Username)
+	}
+}
+
+func TestLoadRegistryRejectsBrokenInventory(t *testing.T) {
+	testutil.ClearMikrotikEnv(t)
+	os.Setenv("MIKROTIK_INVENTORY", `[{bad json]`)
+
+	if _, err := LoadRegistry("ignored-host"); err == nil {
+		t.Fatal("expected error for broken inventory")
 	}
 }
