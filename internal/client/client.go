@@ -1,13 +1,13 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
-	"crypto/rand"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -26,10 +27,6 @@ var (
 	ErrRouterOSAuthError      = errors.New("routeros: auth error")
 	ErrRouterOSTransportError = errors.New("routeros: transport error")
 )
-
-var NetDial = func(network, addr string, timeout time.Duration) (net.Conn, error) {
-	return net.DialTimeout(network, addr, timeout)
-}
 
 // RouterOSError wraps RouterOS command errors with message and optional category.
 type RouterOSError struct {
@@ -56,12 +53,7 @@ type ReplyBundle struct {
 
 // ListenResult holds the result of a bounded /listen subscription.
 type ListenResult struct {
-	Tag          string
-	Records      []map[string]string
-	Done         map[string]string
-	Traps        []map[string]string
-	Fatal        map[string]string
-	Empty        bool
+	*ReplyBundle
 	Cancelled    bool
 	LimitReached bool
 	CancelDone   map[string]string
@@ -267,6 +259,8 @@ type RouterOSClient struct {
 	tlsCAFiles []string
 	timeout    time.Duration
 	conn       net.Conn
+	br         *bufio.Reader
+	certPool   *x509.CertPool
 	mu         sync.Mutex
 	execMu     sync.Mutex
 }
@@ -315,7 +309,7 @@ func (c *RouterOSClient) Connect() error {
 	defer c.mu.Unlock()
 
 	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
-	rawConn, err := NetDial("tcp", addr, c.timeout)
+	rawConn, err := net.DialTimeout("tcp", addr, c.timeout)
 	if err != nil {
 		return fmt.Errorf("%w: failed to connect to %s: %v", ErrRouterOSTransportError, addr, err)
 	}
@@ -326,17 +320,10 @@ func (c *RouterOSClient) Connect() error {
 			InsecureSkipVerify: !c.tlsVerify,
 		}
 		if c.tlsVerify && len(c.tlsCAFiles) > 0 {
-			certPool := x509.NewCertPool()
-			for _, f := range c.tlsCAFiles {
-				pem, err := os.ReadFile(f)
-				if err != nil {
-					rawConn.Close()
-					return fmt.Errorf("%w: failed to read CA cert %s: %v", ErrRouterOSTransportError, f, err)
-				}
-				if !certPool.AppendCertsFromPEM(pem) {
-					rawConn.Close()
-					return fmt.Errorf("%w: no valid CA cert found in %s", ErrRouterOSTransportError, f)
-				}
+			certPool, err := c.loadCertPool()
+			if err != nil {
+				rawConn.Close()
+				return fmt.Errorf("%w: %v", ErrRouterOSTransportError, err)
 			}
 			tlsConfig.RootCAs = certPool
 		}
@@ -354,6 +341,7 @@ func (c *RouterOSClient) Connect() error {
 	} else {
 		c.conn = rawConn
 	}
+	c.br = bufio.NewReader(c.conn)
 	return nil
 }
 
@@ -363,6 +351,7 @@ func (c *RouterOSClient) Close() error {
 	if c.conn != nil {
 		err := c.conn.Close()
 		c.conn = nil
+		c.br = nil
 		return err
 	}
 	return nil
@@ -395,7 +384,19 @@ func (c *RouterOSClient) Isolated(fn func(client *RouterOSClient) error) error {
 }
 
 func (c *RouterOSClient) Login() error {
-	reply, err := c.command("/login", map[string]any{"name": c.username, "password": c.password})
+	c.execMu.Lock()
+	defer c.execMu.Unlock()
+	return c.loginLocked()
+}
+
+// loginLocked runs the /login exchange; the caller must hold execMu.
+func (c *RouterOSClient) loginLocked() error {
+	words, err := buildCommandSentence("/login",
+		map[string]any{"name": c.username, "password": c.password}, nil, "")
+	if err != nil {
+		return err
+	}
+	reply, err := c.executeLocked(words)
 	if err != nil {
 		return err
 	}
@@ -418,7 +419,10 @@ func (c *RouterOSClient) Login() error {
 }
 
 func (c *RouterOSClient) Print(menu string, proplist, queries []string, attrs map[string]any) ([]map[string]string, error) {
-	normalizedMenu := normalizeMenu(menu)
+	normalizedMenu, err := normalizeMenu(menu)
+	if err != nil {
+		return nil, err
+	}
 	words := []string{normalizedMenu + "/print"}
 	if len(proplist) > 0 {
 		words = append(words, "=.proplist="+strings.Join(proplist, ","))
@@ -426,7 +430,11 @@ func (c *RouterOSClient) Print(menu string, proplist, queries []string, attrs ma
 	for _, attr := range normalizeAttrs(attrs) {
 		words = append(words, "="+attr.key+"="+attr.value)
 	}
-	for _, query := range normalizeQueries(queries) {
+	normalizedQueries, err := normalizeQueries(queries)
+	if err != nil {
+		return nil, err
+	}
+	for _, query := range normalizedQueries {
 		words = append(words, query)
 	}
 
@@ -441,7 +449,11 @@ func (c *RouterOSClient) Print(menu string, proplist, queries []string, attrs ma
 }
 
 func (c *RouterOSClient) Add(menu string, attrs map[string]any) (map[string]any, error) {
-	reply, err := c.execute(buildMenuSentence(menu, "add", "", attrs))
+	words, err := buildMenuSentence(menu, "add", "", attrs)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := c.execute(words)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +464,11 @@ func (c *RouterOSClient) Set(menu, itemID string, attrs map[string]any) (map[str
 	if strings.TrimSpace(itemID) == "" {
 		return nil, errors.New("item_id is required")
 	}
-	reply, err := c.execute(buildMenuSentence(menu, "set", itemID, attrs))
+	words, err := buildMenuSentence(menu, "set", itemID, attrs)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := c.execute(words)
 	if err != nil {
 		return nil, err
 	}
@@ -463,7 +479,11 @@ func (c *RouterOSClient) Remove(menu, itemID string) (map[string]any, error) {
 	if strings.TrimSpace(itemID) == "" {
 		return nil, errors.New("item_id is required")
 	}
-	reply, err := c.execute(buildMenuSentence(menu, "remove", itemID, nil))
+	words, err := buildMenuSentence(menu, "remove", itemID, nil)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := c.execute(words)
 	if err != nil {
 		return nil, err
 	}
@@ -471,7 +491,10 @@ func (c *RouterOSClient) Remove(menu, itemID string) (map[string]any, error) {
 }
 
 func (c *RouterOSClient) Run(path string, attrs map[string]any, queries []string, tag string) (any, error) {
-	words := buildCommandSentence(path, attrs, queries, tag)
+	words, err := buildCommandSentence(path, attrs, queries, tag)
+	if err != nil {
+		return nil, err
+	}
 	reply, err := c.execute(words)
 	if err != nil {
 		return nil, err
@@ -485,9 +508,36 @@ func (c *RouterOSClient) Run(path string, attrs map[string]any, queries []string
 	return normalizeMutationResult(reply)
 }
 
+// RunContext is Run with cancellation support: when ctx is cancelled the
+// tagged command is interrupted with /cancel and the error is ctx.Err().
+func (c *RouterOSClient) RunContext(ctx context.Context, path string, attrs map[string]any, queries []string, tag string) (any, error) {
+	words, err := buildCommandSentence(path, attrs, queries, tag)
+	if err != nil {
+		return nil, err
+	}
+	reply, err := c.executeContext(ctx, words)
+	if err != nil {
+		return nil, err
+	}
+	if err := raiseForErrors(reply); err != nil {
+		return nil, err
+	}
+	if len(reply.Records) > 0 {
+		return reply.Records, nil
+	}
+	return normalizeMutationResult(reply)
+}
+
 func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs map[string]any, tag string, maxEvents int) (*ListenResult, error) {
+	return c.ListenContext(context.Background(), menu, proplist, queries, attrs, tag, maxEvents)
+}
+
+// ListenContext is Listen with cancellation support: when ctx is cancelled the
+// listen is interrupted with /cancel and the result is marked Cancelled.
+func (c *RouterOSClient) ListenContext(ctx context.Context, menu string, proplist, queries []string, attrs map[string]any, tag string, maxEvents int) (*ListenResult, error) {
 	c.execMu.Lock()
 	defer c.execMu.Unlock()
+	defer c.clearDeadline()
 
 	if maxEvents < 1 {
 		return nil, errors.New("max_events must be at least 1")
@@ -499,7 +549,10 @@ func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs m
 	}
 	cancelTag := listenTag + "-cancel"
 
-	normalizedMenu := normalizeMenu(menu)
+	normalizedMenu, err := normalizeMenu(menu)
+	if err != nil {
+		return nil, err
+	}
 	words := []string{normalizedMenu + "/listen"}
 	if len(proplist) > 0 {
 		words = append(words, "=.proplist="+strings.Join(proplist, ","))
@@ -507,15 +560,32 @@ func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs m
 	for _, attr := range normalizeAttrs(attrs) {
 		words = append(words, "="+attr.key+"="+attr.value)
 	}
-	for _, query := range normalizeQueries(queries) {
+	normalizedQueries, err := normalizeQueries(queries)
+	if err != nil {
+		return nil, err
+	}
+	for _, query := range normalizedQueries {
 		words = append(words, query)
 	}
 	words = append(words, ".tag="+listenTag)
 
-	result := &ListenResult{Tag: listenTag}
+	result := &ListenResult{ReplyBundle: &ReplyBundle{Tag: listenTag}}
 
+	c.setDeadline()
 	if err := c.writeSentence(words); err != nil {
 		return nil, err
+	}
+
+	if ctx.Done() != nil {
+		watchDone := make(chan struct{})
+		defer close(watchDone)
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = c.conn.SetDeadline(time.Now())
+			case <-watchDone:
+			}
+		}()
 	}
 
 	cancelSent := false
@@ -523,18 +593,29 @@ func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs m
 	cancelDone := false
 
 	for {
+		if ctx.Err() != nil && !cancelSent {
+			result.Cancelled = true
+			if writeErr := c.sendCancel(listenTag); writeErr != nil {
+				return nil, writeErr
+			}
+			cancelSent = true
+		}
 		c.setDeadline()
-		sentence, err := readSentence(c.conn)
+		sentence, err := readSentence(c.reader())
 		if err != nil {
 			msg := err.Error()
 			// On timeout, send cancel
 			if !cancelSent && (errors.Is(err, ErrRouterOSTransportError) || strings.Contains(strings.ToLower(msg), "timeout")) {
 				result.Cancelled = true
-				cancelWords := buildCancelSentence(listenTag, "")
-				if writeErr := c.writeSentence(cancelWords); writeErr != nil {
+				c.setDeadline() // refresh the deadline so the cancel write can succeed
+				if writeErr := c.sendCancel(listenTag); writeErr != nil {
 					return nil, writeErr
 				}
 				cancelSent = true
+				continue
+			}
+			if ctx.Err() != nil {
+				// Interrupted by caller cancellation; keep draining.
 				continue
 			}
 			return nil, err
@@ -553,8 +634,7 @@ func (c *RouterOSClient) Listen(menu string, proplist, queries []string, attrs m
 				if len(result.Records) >= maxEvents && !cancelSent {
 					result.LimitReached = true
 					result.Cancelled = true
-					cancelWords := buildCancelSentence(listenTag, "")
-					if writeErr := c.writeSentence(cancelWords); writeErr != nil {
+					if writeErr := c.sendCancel(listenTag); writeErr != nil {
 						return nil, writeErr
 					}
 					cancelSent = true
@@ -616,46 +696,111 @@ func (c *RouterOSClient) Cancel(tag string) (map[string]any, error) {
 	if strings.TrimSpace(tag) == "" {
 		return nil, errors.New("tag is required")
 	}
-	reply, err := c.execute(buildCancelSentence(tag, ""))
+	words, err := buildCancelSentence(tag, "")
+	if err != nil {
+		return nil, err
+	}
+	reply, err := c.execute(words)
 	if err != nil {
 		return nil, err
 	}
 	return normalizeMutationResult(reply)
 }
 
-func (c *RouterOSClient) command(path string, attrs map[string]any) (*ReplyBundle, error) {
-	words := buildCommandSentence(path, attrs, nil, "")
-	reply, err := c.execute(words)
-	if err != nil {
-		return nil, err
-	}
-	if reply.Fatal != nil {
-		msg := reply.Fatal["message"]
-		if msg == "" {
-			msg = "RouterOS connection ended unexpectedly"
-		}
-		return nil, fmt.Errorf("%w: %s", ErrRouterOSFatalError, msg)
-	}
-	return reply, nil
+func (c *RouterOSClient) execute(words []string) (*ReplyBundle, error) {
+	return c.executeContext(context.Background(), words)
 }
 
-func (c *RouterOSClient) execute(words []string) (*ReplyBundle, error) {
-	c.execMu.Lock()
-	defer c.execMu.Unlock()
-
-	if c.conn == nil {
-		if err := c.Open(); err != nil {
-			return nil, err
-		}
-	}
+// executeLocked sends a sentence and reads the full reply; the caller must
+// hold execMu. Used by loginLocked so a lazy connect can authenticate without
+// re-acquiring the lock it already holds.
+func (c *RouterOSClient) executeLocked(words []string) (*ReplyBundle, error) {
 	c.setDeadline()
 	if err := c.writeSentence(words); err != nil {
 		return nil, err
 	}
 	var sentences [][]string
 	for {
-		sentence, err := readSentence(c.conn)
+		sentence, err := readSentence(c.reader())
 		if err != nil {
+			return nil, err
+		}
+		sentences = append(sentences, sentence)
+		if len(sentence) > 0 {
+			first := sentence[0]
+			if first == "!done" || first == "!fatal" {
+				break
+			}
+		}
+	}
+	return parseReplySentences(sentences), nil
+}
+
+func (c *RouterOSClient) executeContext(ctx context.Context, words []string) (*ReplyBundle, error) {
+	c.execMu.Lock()
+	defer c.execMu.Unlock()
+	defer c.clearDeadline()
+
+	if c.conn == nil {
+		// Lazy connect under execMu. Connect takes c.mu and loginLocked does
+		// not touch execMu, so this cannot deadlock.
+		if err := c.Connect(); err != nil {
+			return nil, err
+		}
+		if err := c.loginLocked(); err != nil {
+			return nil, err
+		}
+	}
+
+	tag := ""
+	for _, w := range words {
+		if rest, ok := strings.CutPrefix(w, ".tag="); ok {
+			tag = rest
+		}
+	}
+	if ctx.Done() != nil && tag == "" {
+		tag = c.generateTag("ctx")
+		words = append(words, ".tag="+tag)
+	}
+
+	c.setDeadline()
+	if err := c.writeSentence(words); err != nil {
+		return nil, err
+	}
+
+	if ctx.Done() != nil {
+		watchDone := make(chan struct{})
+		defer close(watchDone)
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = c.conn.SetDeadline(time.Now())
+			case <-watchDone:
+			}
+		}()
+	}
+
+	var sentences [][]string
+	for {
+		sentence, err := readSentence(c.reader())
+		if err != nil {
+			if ctx.Err() != nil {
+				_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
+				if writeErr := c.sendCancel(tag); writeErr != nil {
+					return nil, writeErr
+				}
+				for {
+					s, rerr := readSentence(c.reader())
+					if rerr != nil {
+						return nil, ctx.Err()
+					}
+					sentences = append(sentences, s)
+					if len(s) > 0 && (s[0] == "!done" || s[0] == "!fatal") {
+						break
+					}
+				}
+				return nil, ctx.Err()
+			}
 			return nil, err
 		}
 		sentences = append(sentences, sentence)
@@ -690,12 +835,52 @@ func (c *RouterOSClient) setDeadline() {
 	}
 }
 
-func (c *RouterOSClient) SetConn(conn net.Conn) { c.conn = conn }
+func (c *RouterOSClient) clearDeadline() {
+	if c.conn != nil {
+		// SetDeadline applies to both reads and writes; a deadline left
+		// expired after a timeout would otherwise break every later
+		// operation on this socket.
+		_ = c.conn.SetDeadline(time.Time{})
+	}
+}
+
+func (c *RouterOSClient) sendCancel(tag string) error {
+	words, err := buildCancelSentence(tag, "")
+	if err != nil {
+		return err
+	}
+	return c.writeSentence(words)
+}
+
+func (c *RouterOSClient) reader() *bufio.Reader {
+	if c.br == nil && c.conn != nil {
+		c.br = bufio.NewReader(c.conn)
+	}
+	return c.br
+}
+
+func (c *RouterOSClient) loadCertPool() (*x509.CertPool, error) {
+	if c.certPool != nil {
+		return c.certPool, nil
+	}
+	pool := x509.NewCertPool()
+	for _, f := range c.tlsCAFiles {
+		pem, err := os.ReadFile(f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert %s: %v", f, err)
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("no valid CA cert found in %s", f)
+		}
+	}
+	c.certPool = pool
+	return pool, nil
+}
+
+var tagCounter atomic.Uint64
 
 func (c *RouterOSClient) generateTag(prefix string) string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return prefix + "-" + hex.EncodeToString(b)[:12]
+	return prefix + "-" + strconv.FormatUint(tagCounter.Add(1), 16)
 }
 
 func (c *RouterOSClient) Host() string { return c.host }
@@ -750,117 +935,122 @@ func tlsVersionName(version uint16) string {
 // Helper functions (private)
 // ---------------------------------------------------------------------------
 
-func normalizeMenu(menu string) string {
+func normalizeMenu(menu string) (string, error) {
 	trimmed := strings.TrimSpace(menu)
 	if trimmed == "" {
-		panic("menu is required")
+		return "", errors.New("menu is required")
 	}
-	return "/" + strings.Trim(trimmed, "/")
+	return "/" + strings.Trim(trimmed, "/"), nil
 }
 
-func normalizeItemID(itemID string) string {
+func normalizeItemID(itemID string) (string, error) {
 	trimmed := strings.TrimSpace(itemID)
 	if trimmed == "" {
-		panic("item_id is required")
+		return "", errors.New("item_id is required")
 	}
-	return trimmed
+	return trimmed, nil
 }
 
-func normalizeCommandPath(path string) string {
+func normalizeCommandPath(path string) (string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
-		panic("command path is required")
+		return "", errors.New("command path is required")
 	}
-	return "/" + strings.Trim(trimmed, "/")
+	return "/" + strings.Trim(trimmed, "/"), nil
 }
 
-func normalizeTag(tag string) string {
+func normalizeTag(tag string) (string, error) {
 	tag = strings.TrimSpace(tag)
 	if tag == "" {
-		panic("tag is required")
+		return "", errors.New("tag is required")
 	}
 	if strings.ContainsAny(tag, " \t\n\r") {
-		panic("tag must not contain whitespace")
+		return "", errors.New("tag must not contain whitespace")
 	}
-	return tag
+	return tag, nil
 }
 
-func normalizeQueries(queries []string) []string {
+func normalizeQueries(queries []string) ([]string, error) {
 	var normalized []string
 	for _, query := range queries {
 		trimmed := strings.TrimSpace(query)
 		if trimmed == "" {
-			panic("query entries must not be empty")
+			return nil, errors.New("query entries must not be empty")
 		}
 		if strings.ContainsAny(trimmed, " \t\n\r") {
-			panic("query '" + query + "' must not contain whitespace")
+			return nil, fmt.Errorf("query %q must not contain whitespace", query)
 		}
 		if !strings.HasPrefix(trimmed, "?") {
 			trimmed = "?" + trimmed
 		}
 		normalized = append(normalized, trimmed)
 	}
-	return normalized
+	return normalized, nil
 }
 
 func normalizeAttrs(attrs map[string]any) []struct{ key, value string } {
-	type kv struct{ k, v string }
-	var sorted []kv
+	var sorted []struct{ key, value string }
 	for k, v := range attrs {
 		if v != nil {
-			sorted = append(sorted, kv{k, stringifyValue(v)})
+			sorted = append(sorted, struct{ key, value string }{k, fmt.Sprint(v)})
 		}
 	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].k < sorted[j].k })
-	result := make([]struct{ key, value string }, len(sorted))
-	for i, item := range sorted {
-		result[i] = struct{ key, value string }{item.k, item.v}
-	}
-	return result
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].key < sorted[j].key })
+	return sorted
 }
 
-func stringifyValue(value any) string {
-	switch v := value.(type) {
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	case string:
-		return v
-	default:
-		return fmt.Sprint(v)
+func buildMenuSentence(menu, action, itemID string, attrs map[string]any) ([]string, error) {
+	normalizedMenu, err := normalizeMenu(menu)
+	if err != nil {
+		return nil, err
 	}
-}
-
-func buildMenuSentence(menu, action, itemID string, attrs map[string]any) []string {
-	sentence := []string{normalizeMenu(menu) + "/" + action}
+	sentence := []string{normalizedMenu + "/" + action}
 	if itemID != "" {
-		sentence = append(sentence, "=.id="+normalizeItemID(itemID))
+		id, err := normalizeItemID(itemID)
+		if err != nil {
+			return nil, err
+		}
+		sentence = append(sentence, "=.id="+id)
 	}
 	for _, attr := range normalizeAttrs(attrs) {
 		sentence = append(sentence, "="+attr.key+"="+attr.value)
 	}
-	return sentence
+	return sentence, nil
 }
 
-func buildCancelSentence(tag, cancelTag string) []string {
+func buildCancelSentence(tag, cancelTag string) ([]string, error) {
 	_ = cancelTag // unused in Python version
-	return []string{"/cancel", "=tag=" + normalizeTag(tag)}
+	normalized, err := normalizeTag(tag)
+	if err != nil {
+		return nil, err
+	}
+	return []string{"/cancel", "=tag=" + normalized}, nil
 }
 
-func buildCommandSentence(path string, attrs map[string]any, queries []string, tag string) []string {
-	sentence := []string{normalizeCommandPath(path)}
+func buildCommandSentence(path string, attrs map[string]any, queries []string, tag string) ([]string, error) {
+	normalizedPath, err := normalizeCommandPath(path)
+	if err != nil {
+		return nil, err
+	}
+	sentence := []string{normalizedPath}
 	for _, attr := range normalizeAttrs(attrs) {
 		sentence = append(sentence, "="+attr.key+"="+attr.value)
 	}
-	for _, query := range normalizeQueries(queries) {
-		sentence = append(sentence, query)
+	if len(queries) > 0 {
+		normalizedQueries, err := normalizeQueries(queries)
+		if err != nil {
+			return nil, err
+		}
+		sentence = append(sentence, normalizedQueries...)
 	}
 	if tag != "" {
-		sentence = append(sentence, ".tag="+normalizeTag(tag))
+		normalizedTag, err := normalizeTag(tag)
+		if err != nil {
+			return nil, err
+		}
+		sentence = append(sentence, ".tag="+normalizedTag)
 	}
-	return sentence
+	return sentence, nil
 }
 
 func raiseForErrors(reply *ReplyBundle) error {

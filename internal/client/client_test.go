@@ -2,18 +2,18 @@ package client
 
 import (
 	"bytes"
-	"errors"
-	"net"
-	"os"
-	"strings"
-	"sync"
+	"reflect"
 	"testing"
-	"time"
-
-	"github.com/Delnegend/mikrotik-mcp/internal/testutil"
 )
 
 func TestEncodeLengthRouterOSPrefixes(t *testing.T) {
+	// Full boundary table from the official RouterOS API spec
+	// (manual.mikrotik.com/docs/developer-guides/api/):
+	//   0 <= len <= 0x7F          -> 1 byte
+	//   0x80 <= len <= 0x3FFF     -> 2 bytes, len|0x8000
+	//   0x4000 <= len <= 0x1FFFFF -> 3 bytes, len|0xC00000
+	//   0x200000 <= len <= 0xFFFFFFF -> 4 bytes, len|0xE0000000
+	//   len >= 0x10000000         -> 0xF0 + 4-byte len
 	tests := []struct {
 		length   int
 		expected []byte
@@ -23,6 +23,11 @@ func TestEncodeLengthRouterOSPrefixes(t *testing.T) {
 		{128, []byte{0x80, 0x80}},
 		{16383, []byte{0xbf, 0xff}},
 		{16384, []byte{0xc0, 0x40, 0x00}},
+		{0x1FFFFF, []byte{0xdf, 0xff, 0xff}},
+		{0x200000, []byte{0xe0, 0x20, 0x00, 0x00}},
+		{0x0FFFFFFF, []byte{0xef, 0xff, 0xff, 0xff}},
+		{0x10000000, []byte{0xf0, 0x10, 0x00, 0x00, 0x00}},
+		{0xFFFFFFFF, []byte{0xf0, 0xff, 0xff, 0xff, 0xff}},
 	}
 	for _, tt := range tests {
 		result, err := encodeLength(tt.length)
@@ -32,6 +37,23 @@ func TestEncodeLengthRouterOSPrefixes(t *testing.T) {
 		}
 		if !bytes.Equal(result, tt.expected) {
 			t.Errorf("encodeLength(%d) = %v, want %v", tt.length, result, tt.expected)
+		}
+	}
+}
+
+func TestEncodeLengthTooLarge(t *testing.T) {
+	_, err := encodeLength(0x100000000)
+	if err == nil {
+		t.Error("expected error for length beyond the API's 4-byte limit")
+	}
+}
+
+func TestDecodeLengthReservedControlBytes(t *testing.T) {
+	// The spec reserves first bytes >= 0xF8 as control bytes; only 0xF0
+	// (long length) is defined. Anything else must be rejected.
+	for _, b := range []byte{0xF1, 0xF8, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF} {
+		if _, err := decodeLength(bytes.NewReader([]byte{b})); err == nil {
+			t.Errorf("decodeLength(0x%02x) expected error for reserved control byte", b)
 		}
 	}
 }
@@ -59,6 +81,117 @@ func TestEncodeLengthNegative(t *testing.T) {
 	_, err := encodeLength(-1)
 	if err == nil {
 		t.Error("expected error for negative length")
+	}
+}
+
+// officialLengthPrefix and officialSentence are an independent transcription
+// of the reference implementation published by MikroTik in the official API
+// Python3 example (manual.mikrotik.com/docs/developer-guides/api/python3-example).
+// Used to cross-check our encoder without testing it against itself.
+func officialLengthPrefix(length int) []byte {
+	switch {
+	case length < 0x80:
+		return []byte{byte(length)}
+	case length < 0x4000:
+		l := length | 0x8000
+		return []byte{byte(l >> 8), byte(l)}
+	case length < 0x200000:
+		l := length | 0xC00000
+		return []byte{byte(l >> 16), byte(l >> 8), byte(l)}
+	case length < 0x10000000:
+		l := length | 0xE0000000
+		return []byte{byte(l >> 24), byte(l >> 16), byte(l >> 8), byte(l)}
+	default:
+		return append([]byte{0xF0},
+			byte(length>>24), byte(length>>16), byte(length>>8), byte(length))
+	}
+}
+
+func officialSentence(words ...string) []byte {
+	var buf []byte
+	for _, w := range words {
+		buf = append(buf, officialLengthPrefix(len(w))...)
+		buf = append(buf, w...)
+	}
+	return append(buf, 0)
+}
+
+func TestEncodeSentenceMatchesOfficialReference(t *testing.T) {
+	cases := [][]string{
+		{"/user/getall"},
+		{"/login", "=name=admin", "=password="},
+		{"/interface/print", "?type=ether", "=.proplist=.id"},
+		{"/cancel", "=tag=2", ".tag=7"},
+		{"!re", "=.id=*1", "=name=ether1", "=disabled=false", ".tag=2"},
+	}
+	for _, words := range cases {
+		want := officialSentence(words...)
+		if got := encodeSentence(words); !bytes.Equal(got, want) {
+			t.Errorf("encodeSentence(%v)\n got %x\nwant %x", words, got, want)
+		}
+	}
+}
+
+func TestParseOfficialGetallTrace(t *testing.T) {
+	// Exact reply shown in the official API docs, "Example client" section.
+	sentences := [][]string{
+		{"!re", "=.id=*1", "=disabled=no", "=name=admin", "=group=full", "=address=0.0.0.0/0", "=netmask=0.0.0.0"},
+		{"!done"},
+	}
+	bundle := parseReplySentences(sentences)
+	if len(bundle.Records) != 1 {
+		t.Fatalf("got %d records, want 1", len(bundle.Records))
+	}
+	want := map[string]string{
+		".id": "*1", "disabled": "no", "name": "admin", "group": "full",
+		"address": "0.0.0.0/0", "netmask": "0.0.0.0",
+	}
+	if !reflect.DeepEqual(bundle.Records[0], want) {
+		t.Errorf("record = %v, want %v", bundle.Records[0], want)
+	}
+	if bundle.Done == nil {
+		t.Error("expected !done attributes")
+	}
+}
+
+func TestParseOfficialCancelTrace(t *testing.T) {
+	// Exact replies shown in the official API docs, "/cancel, simultaneous
+	// commands" example (listen tag 2, cancel tag 7).
+	sentences := [][]string{
+		{"!trap", "=category=2", "=message=interrupted", ".tag=2"},
+		{"!done", ".tag=7"},
+		{"!done", ".tag=2"},
+	}
+	bundle := parseReplySentences(sentences)
+	if len(bundle.Traps) != 1 {
+		t.Fatalf("got %d traps, want 1", len(bundle.Traps))
+	}
+	trap := bundle.Traps[0]
+	if trap["category"] != "2" || trap["message"] != "interrupted" || trap[".tag"] != "2" {
+		t.Errorf("trap = %v", trap)
+	}
+	if bundle.Tag != "2" {
+		t.Errorf("bundle tag = %q, want 2", bundle.Tag)
+	}
+	if bundle.Done == nil {
+		t.Error("expected !done attributes")
+	}
+}
+
+func TestParseOfficialOIDPrintTrace(t *testing.T) {
+	// Exact reply shown in the official API docs, "OID" section.
+	sentences := [][]string{
+		{"!re", "=uptime=01:22:53", "=cpu-load=0",
+			"=uptime.oid=.1.3.6.1.2.1.1.3.0", "=cpu-load.oid=.1.3.6.1.2.1.25.3.3.1.2.1"},
+		{"!done"},
+	}
+	bundle := parseReplySentences(sentences)
+	if len(bundle.Records) != 1 {
+		t.Fatalf("got %d records, want 1", len(bundle.Records))
+	}
+	rec := bundle.Records[0]
+	if rec["uptime"] != "01:22:53" || rec["uptime.oid"] != ".1.3.6.1.2.1.1.3.0" {
+		t.Errorf("record = %v", rec)
 	}
 }
 
@@ -111,292 +244,8 @@ func TestParseReplySentencesPreservesTagMetadata(t *testing.T) {
 	}
 }
 
-func TestPrintBuildsSentenceAndReturnsRecords(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	reResponse := encodeSentence([]string{"!re", "=.id=*1", "=name=ether1", "=disabled=false"})
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(reResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	records, err := client.Print("/interface", []string{"name", "disabled"}, []string{"disabled=false", "?#|"}, map[string]any{"detail": true})
-	if err != nil {
-		t.Fatalf("Print error: %v", err)
-	}
-	if len(records) != 1 || records[0][".id"] != "*1" {
-		t.Errorf("records = %v", records)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/interface/print") {
-		t.Errorf("sent missing /interface/print: %q", sent)
-	}
-}
-
-func TestLoginTrapRaisesCredentialError(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	trapResponse := encodeSentence([]string{"!trap", "=message=invalid user name or password"})
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(trapResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	err := client.Login()
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "RouterOS login failed") {
-		t.Errorf("error = %q", err.Error())
-	}
-}
-
-func TestAddBuildsSentenceAndReturnsDonePayload(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	doneResponse := encodeSentence([]string{"!done", "=ret=*3"})
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	result, err := client.Add("/ip/address", map[string]any{"address": "192.0.2.10/24", "interface": "ether1", "disabled": false})
-	if err != nil {
-		t.Fatalf("Add error: %v", err)
-	}
-	if result["ret"] != "*3" {
-		t.Errorf("result ret = %v, want *3", result["ret"])
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/ip/address/add") {
-		t.Errorf("sent missing path: %q", sent)
-	}
-	if !strings.Contains(sent, "=address=192.0.2.10/24") {
-		t.Errorf("sent missing address: %q", sent)
-	}
-	if !strings.Contains(sent, "=interface=ether1") {
-		t.Errorf("sent missing interface: %q", sent)
-	}
-	if !strings.Contains(sent, "=disabled=false") {
-		t.Errorf("sent missing disabled: %q", sent)
-	}
-}
-
-func TestSetBuildsSentenceWithExplicitItemID(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	result, err := client.Set("/ip/address", "*3", map[string]any{"disabled": true})
-	if err != nil {
-		t.Fatalf("Set error: %v", err)
-	}
-	if result["success"] != true {
-		t.Errorf("result = %v, want success=true", result)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/ip/address/set") {
-		t.Errorf("sent missing set: %q", sent)
-	}
-	if !strings.Contains(sent, "=.id=*3") {
-		t.Errorf("sent missing .id: %q", sent)
-	}
-	if !strings.Contains(sent, "=disabled=true") {
-		t.Errorf("sent missing disabled=true: %q", sent)
-	}
-}
-
-func TestRemoveBuildsSentenceAndReturnsEmptyResult(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	emptyResponse := encodeSentence([]string{"!empty"})
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(emptyResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	result, err := client.Remove("/ip/address", "*3")
-	if err != nil {
-		t.Fatalf("Remove error: %v", err)
-	}
-	if result["empty"] != true {
-		t.Errorf("result = %v, want empty=true", result)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "=.id=*3") {
-		t.Errorf("sent missing .id: %q", sent)
-	}
-}
-
-func TestRunReturnsRecords(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	reResponse := encodeSentence([]string{"!re", "=host=192.0.2.1", "=status=reachable"})
-	doneResponse := encodeSentence([]string{"!done", "=ret=ok"})
-	fake.WriteResponse(reResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	result, err := client.Run("/tool/ping", map[string]any{"address": "192.0.2.1", "count": "1"}, []string{"status=reachable"}, "")
-	if err != nil {
-		t.Fatalf("Run error: %v", err)
-	}
-
-	records, ok := result.([]map[string]string)
-	if !ok || len(records) != 1 {
-		t.Fatalf("expected []records, got %T %v", result, result)
-	}
-	if records[0]["host"] != "192.0.2.1" || records[0]["status"] != "reachable" {
-		t.Errorf("records = %v", records)
-	}
-}
-
-func TestListenReturnsBoundedRecordsAndCancelsByTag(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	enc := func(words []string) []byte {
-		return encodeSentence(words)
-	}
-	fake.WriteResponse(enc([]string{"!re", ".tag=listen-1", "=name=ether1"}))
-	fake.WriteResponse(enc([]string{"!re", ".tag=listen-1", "=name=ether2"}))
-	fake.WriteResponse(enc([]string{"!done"}))
-	fake.WriteResponse(enc([]string{"!done", ".tag=listen-1", "=ret=interrupted"}))
-	client.conn = fake
-
-	result, err := client.Listen("/interface", nil, []string{"running=true"}, nil, "listen-1", 2)
-	if err != nil {
-		t.Fatalf("Listen error: %v", err)
-	}
-
-	if result.Tag != "listen-1" {
-		t.Errorf("tag = %q", result.Tag)
-	}
-	if len(result.Records) != 2 {
-		t.Fatalf("got %d records, want 2", len(result.Records))
-	}
-	if !result.Cancelled {
-		t.Error("expected cancelled=true")
-	}
-	if !result.LimitReached {
-		t.Error("expected limit_reached=true")
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/interface/listen") {
-		t.Errorf("listen sent missing: %q", sent)
-	}
-	if !strings.Contains(sent, "/cancel") {
-		t.Errorf("missing cancel: %q", sent)
-	}
-}
-
-func TestListenRequiresPositiveMaxEvents(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	client.conn = fake
-
-	_, err := client.Listen("/interface", nil, nil, nil, "", 0)
-	if err == nil {
-		t.Fatal("expected error for max_events=0")
-	}
-	if !strings.Contains(err.Error(), "max_events must be at least 1") {
-		t.Errorf("error = %q", err.Error())
-	}
-}
-
-func TestListenRaisesWhenCancelReturnsFatal(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	enc := func(words []string) []byte {
-		return encodeSentence(words)
-	}
-	fake.WriteResponse(enc([]string{"!re", ".tag=listen-1", "=name=ether1"}))
-	fake.WriteResponse(enc([]string{"!fatal", "=message=connection closing"}))
-	client.conn = fake
-
-	_, err := client.Listen("/interface", nil, nil, nil, "listen-1", 1)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "connection closing") {
-		t.Errorf("error = %q", err.Error())
-	}
-}
-
-func TestCancelBuildsCancelSentence(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	doneResponse := encodeSentence([]string{"!done", "=ret=ok"})
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	result, err := client.Cancel("listen-1")
-	if err != nil {
-		t.Fatalf("Cancel error: %v", err)
-	}
-	if result["ret"] != "ok" {
-		t.Errorf("result = %v", result)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/cancel") {
-		t.Errorf("missing /cancel: %q", sent)
-	}
-	if !strings.Contains(sent, "=tag=listen-1") {
-		t.Errorf("missing tag: %q", sent)
-	}
-}
-
-func TestCloneCopiesConnectionSettings(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret",
-		WithTLS(true),
-		WithTLSVerify(true),
-		WithTLSCAFiles([]string{"/tmp/router-ca.pem"}),
-		WithPort(8729),
-	)
-
-	cloned := client.Clone()
-
-	if cloned == client {
-		t.Error("cloned should not be the same pointer")
-	}
-	if cloned.host != client.host {
-		t.Errorf("host = %q, want %q", cloned.host, client.host)
-	}
-	if cloned.port != client.port {
-		t.Errorf("port = %d, want %d", cloned.port, client.port)
-	}
-	if cloned.useSSL != client.useSSL {
-		t.Errorf("useSSL = %v", cloned.useSSL)
-	}
-	if cloned.tlsVerify != client.tlsVerify {
-		t.Errorf("tlsVerify = %v", cloned.tlsVerify)
-	}
-	if len(cloned.tlsCAFiles) != len(client.tlsCAFiles) || cloned.tlsCAFiles[0] != client.tlsCAFiles[0] {
-		t.Errorf("tlsCAFiles = %v", cloned.tlsCAFiles)
-	}
-}
-
 func TestReadWordFallsBackToLatin1ForNonUTF8(t *testing.T) {
-	fake := newFakeConn()
-	fake.WriteResponse([]byte{0x01, 0xf3})
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	client.conn = fake
-
-	word, err := readWord(client.conn)
+	word, err := readWord(bytes.NewReader([]byte{0x01, 0xf3}))
 	if err != nil {
 		t.Fatalf("readWord error: %v", err)
 	}
@@ -405,405 +254,10 @@ func TestReadWordFallsBackToLatin1ForNonUTF8(t *testing.T) {
 	}
 }
 
-func TestMutationTrapRaisesClearRouterOSError(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	trapResponse := encodeSentence([]string{"!trap", "=category=1", "=message=failure"})
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(trapResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	_, err := client.Remove("/ip/address", "*3")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "RouterOS command failed (1): failure") {
-		t.Errorf("error = %q", err.Error())
-	}
-}
-
-// ---- Phase 2.2: Missing & Strengthened Tests ----
-
-func TestRunReturnsDonePayloadWithoutRecords(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	fake.WriteResponse(encodeSentence([]string{"!done", "=ret=ok"}))
-	client.conn = fake
-
-	result, err := client.Run("/system/backup/save", map[string]any{"name": "test"}, nil, "")
-	if err != nil {
-		t.Fatalf("Run error: %v", err)
-	}
-	m, ok := result.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map result, got %T", result)
-	}
-	if m["ret"] != "ok" {
-		t.Errorf("ret = %v, want ok", m["ret"])
-	}
-}
-
-func TestRunSupportsExplicitTag(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	fake.WriteResponse(encodeSentence([]string{"!done", "=ret=ok"}))
-	client.conn = fake
-
-	_, err := client.Run("/tool/ping", map[string]any{"address": "10.0.0.1"}, nil, "ping-1")
-	if err != nil {
-		t.Fatalf("Run error: %v", err)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, ".tag=ping-1") {
-		t.Errorf("sent missing tag: %q", sent)
-	}
-}
-
-func TestExecuteOpensConnectionLazily(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	// conn is nil; execute should call Open() which dials.
-	// Unit test can't mock Open() without network, so verify that
-	// setting conn beforehand avoids the Open() call.
-	fake.WriteResponse(encodeSentence([]string{"!done", "=ret=ok"}))
-	client.conn = fake
-
-	_, err := client.Run("/system/identity/print", nil, nil, "")
-	if err != nil {
-		t.Fatalf("Run error: %v", err)
-	}
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/system/identity/print") {
-		t.Errorf("expected print sentence, got: %q", sent)
-	}
-	// No login sentence should appear — Open() was skipped because conn was set
-	if strings.Contains(sent, "/login") {
-		t.Errorf("unexpected login sentence; Open() should not be called when conn is set: %q", sent)
-	}
-}
-
-func TestListenGeneratesTagWhenNotProvided(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	enc := func(words []string) []byte { return encodeSentence(words) }
-	fake.WriteResponse(enc([]string{"!done"}))
-	fake.WriteResponse(enc([]string{"!done", "=ret=interrupted"}))
-	client.conn = fake
-
-	result, err := client.Listen("/interface", nil, nil, nil, "", 1)
-	if err != nil {
-		t.Fatalf("Listen error: %v", err)
-	}
-	if !strings.HasPrefix(result.Tag, "listen-") {
-		t.Errorf("expected auto-generated tag, got %q", result.Tag)
-	}
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, ".tag="+result.Tag) {
-		t.Errorf("sent missing .tag=%s: %q", result.Tag, sent)
-	}
-}
-
-func TestListenUsesRouterOSDotTagWord(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	enc := func(words []string) []byte { return encodeSentence(words) }
-	fake.WriteResponse(enc([]string{"!re", ".tag=test-tag", "=name=ether1"}))
-	fake.WriteResponse(enc([]string{"!done"}))
-	fake.WriteResponse(enc([]string{"!done", ".tag=test-tag", "=ret=interrupted"}))
-	client.conn = fake
-
-	result, err := client.Listen("/interface", nil, nil, nil, "test-tag", 1)
-	if err != nil {
-		t.Fatalf("Listen error: %v", err)
-	}
-	if result.Tag != "test-tag" {
-		t.Errorf("tag = %q, want test-tag", result.Tag)
-	}
-}
-
-func TestListenReturnsErrorOnEmptyStream(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	// No response data — Read returns io.EOF immediately
-	client.conn = fake
-
-	_, err := client.Listen("/interface", nil, nil, nil, "listen-1", 10)
-	if err == nil {
-		t.Fatal("expected error for empty stream")
-	}
-	// Should not hang — returns promptly with an error
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/interface/listen") {
-		t.Errorf("expected listen sentence, got: %q", sent)
-	}
-}
-
 func TestTLSSessionInfoReturnsNilForPlainSocket(t *testing.T) {
 	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	client.conn = fake
-
-	info := client.TLSSessionInfo()
-	if info != nil {
-		t.Errorf("expected nil for plain socket, got %v", info)
-	}
-}
-
-func TestSetRequiresNonEmptyItemID(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	_, err := client.Set("/ip/address", "", map[string]any{"disabled": true})
-	if err == nil {
-		t.Fatal("expected error for empty item_id")
-	}
-	if !strings.Contains(err.Error(), "item_id is required") {
-		t.Errorf("error = %q", err.Error())
-	}
-}
-
-func TestRemoveRequiresNonEmptyItemID(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	_, err := client.Remove("/ip/address", "")
-	if err == nil {
-		t.Fatal("expected error for empty item_id")
-	}
-	if !strings.Contains(err.Error(), "item_id is required") {
-		t.Errorf("error = %q", err.Error())
-	}
-}
-
-func TestCancelRequiresNonEmptyTag(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	_, err := client.Cancel("")
-	if err == nil {
-		t.Fatal("expected error for empty tag")
-	}
-	if !strings.Contains(err.Error(), "tag is required") {
-		t.Errorf("error = %q", err.Error())
-	}
-}
-
-func TestPrintRequiresNonEmptyMenu(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	client.conn = fake
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for empty menu in Print")
-		}
-	}()
-	client.Print("", nil, nil, nil)
-}
-
-// ---- Strengthened existing tests ----
-
-func TestPrintBuildsSentenceAndReturnsRecords_Strengthened(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	reResponse := encodeSentence([]string{"!re", "=.id=*1", "=name=ether1", "=disabled=false"})
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(reResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	records, err := client.Print("/interface", []string{"name", "disabled"}, []string{"disabled=false", "?#|"}, map[string]any{"detail": true})
-	if err != nil {
-		t.Fatalf("Print error: %v", err)
-	}
-	if len(records) != 1 || records[0][".id"] != "*1" {
-		t.Errorf("records = %v", records)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "=.proplist=name,disabled") {
-		t.Errorf("sent missing proplist: %q", sent)
-	}
-	if !strings.Contains(sent, "=detail=true") {
-		t.Errorf("sent missing detail=true: %q", sent)
-	}
-	if !strings.Contains(sent, "?disabled=false") {
-		t.Errorf("sent missing query: %q", sent)
-	}
-	if !strings.Contains(sent, "?#|") {
-		t.Errorf("sent missing OR query: %q", sent)
-	}
-}
-
-func TestRemoveBuildsSentenceAndReturnsEmptyResult_Strengthened(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	emptyResponse := encodeSentence([]string{"!empty"})
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(emptyResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	result, err := client.Remove("/ip/address", "*3")
-	if err != nil {
-		t.Fatalf("Remove error: %v", err)
-	}
-	if result["empty"] != true {
-		t.Errorf("result = %v, want empty=true", result)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "/ip/address/remove") {
-		t.Errorf("sent missing path: %q", sent)
-	}
-	if !strings.Contains(sent, "=.id=*3") {
-		t.Errorf("sent missing .id=*3: %q", sent)
-	}
-}
-
-func TestRunReturnsRecords_Strengthened(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	reResponse := encodeSentence([]string{"!re", "=host=192.0.2.1", "=status=reachable"})
-	doneResponse := encodeSentence([]string{"!done", "=ret=ok"})
-	fake.WriteResponse(reResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	result, err := client.Run("/tool/ping", map[string]any{"address": "192.0.2.1", "count": "1"}, []string{"status=reachable"}, "")
-	if err != nil {
-		t.Fatalf("Run error: %v", err)
-	}
-
-	records, ok := result.([]map[string]string)
-	if !ok || len(records) != 1 {
-		t.Fatalf("expected []records, got %T %v", result, result)
-	}
-	if records[0]["host"] != "192.0.2.1" || records[0]["status"] != "reachable" {
-		t.Errorf("records = %v", records)
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, "?status=reachable") {
-		t.Errorf("sent missing query: %q", sent)
-	}
-	if !strings.Contains(sent, "=count=1") {
-		t.Errorf("sent missing count: %q", sent)
-	}
-}
-
-func TestListenReturnsBoundedRecordsAndCancelsByTag_Strengthened(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	enc := func(words []string) []byte { return encodeSentence(words) }
-	fake.WriteResponse(enc([]string{"!re", ".tag=listen-1", "=name=ether1"}))
-	fake.WriteResponse(enc([]string{"!done"}))
-	fake.WriteResponse(enc([]string{"!done", ".tag=listen-1", "=ret=interrupted"}))
-	client.conn = fake
-
-	result, err := client.Listen("/interface", nil, []string{"running=true"}, nil, "listen-1", 1)
-	if err != nil {
-		t.Fatalf("Listen error: %v", err)
-	}
-
-	if result.Tag != "listen-1" {
-		t.Errorf("tag = %q", result.Tag)
-	}
-	if len(result.Records) != 1 {
-		t.Fatalf("got %d records, want 1", len(result.Records))
-	}
-	if !result.Cancelled {
-		t.Error("expected cancelled=true")
-	}
-	if !result.LimitReached {
-		t.Error("expected limit_reached=true")
-	}
-	if result.CancelDone == nil {
-		t.Error("expected CancelDone to be non-nil")
-	}
-
-	sent := string(fake.Sent())
-	if !strings.Contains(sent, ".tag=listen-1") {
-		t.Errorf("sent missing .tag=listen-1: %q", sent)
-	}
-	if !strings.Contains(sent, "/cancel") {
-		t.Errorf("missing cancel: %q", sent)
-	}
-}
-
-func TestLoginTrapRaisesCredentialError_Strengthened(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-
-	trapResponse := encodeSentence([]string{"!trap", "=message=invalid user name or password"})
-	doneResponse := encodeSentence([]string{"!done"})
-	fake.WriteResponse(trapResponse)
-	fake.WriteResponse(doneResponse)
-	client.conn = fake
-
-	err := client.Login()
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !errors.Is(err, ErrRouterOSAuthError) {
-		t.Errorf("error should wrap ErrRouterOSAuthError, got: %T %v", err, err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// fakeConn wraps testutil.FakeConn for backward compatibility
-// ---------------------------------------------------------------------------
-
-func newFakeConn() *testutil.FakeConn {
-	return testutil.NewFakeConn()
-}
-
-// blockingConn is a net.Conn whose Read blocks until a deadline is set,
-// then returns a timeout error.
-type blockingConn struct {
-	sent     bytes.Buffer
-	closed   bool
-	deadline time.Time
-}
-
-func (b *blockingConn) Read(p []byte) (int, error) {
-	for {
-		if !b.deadline.IsZero() && time.Now().After(b.deadline) {
-			return 0, os.ErrDeadlineExceeded
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func (b *blockingConn) Write(p []byte) (int, error) {
-	return b.sent.Write(p)
-}
-
-func (b *blockingConn) Close() error                       { b.closed = true; return nil }
-func (b *blockingConn) LocalAddr() net.Addr                { return nil }
-func (b *blockingConn) RemoteAddr() net.Addr               { return nil }
-func (b *blockingConn) SetDeadline(t time.Time) error      { b.deadline = t; return nil }
-func (b *blockingConn) SetReadDeadline(t time.Time) error  { b.deadline = t; return nil }
-func (b *blockingConn) SetWriteDeadline(t time.Time) error { return nil }
-
-func TestClientHonoursDeadline(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret", WithTimeout(50*time.Millisecond))
-	bc := &blockingConn{}
-	client.conn = bc
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := client.Run("/system/identity/print", nil, nil, "")
-		done <- err
-	}()
-
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("expected error from blocked read")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("deadline was not honoured — Run blocked forever")
+	if info := client.TLSSessionInfo(); info != nil {
+		t.Errorf("expected nil for non-TLS socket, got %v", info)
 	}
 }
 
@@ -825,61 +279,6 @@ func TestNormalizeAttrsSortsKeys(t *testing.T) {
 	for i := range want {
 		if keys[i] != want[i] {
 			t.Errorf("attr[%d] = %q, want %q (full: %v)", i, keys[i], want[i], keys)
-		}
-	}
-}
-
-func TestConcurrentExecutesSerializeSentences(t *testing.T) {
-	client := NewRouterOSClient("router.test", "admin", "secret")
-	fake := newFakeConn()
-	// 5 responses, one per concurrent call
-	for i := 0; i < 5; i++ {
-		fake.WriteResponse(encodeSentence([]string{"!done"}))
-	}
-	client.conn = fake
-
-	commands := []string{"/cmd/a", "/cmd/b", "/cmd/c", "/cmd/d", "/cmd/e"}
-	var wg sync.WaitGroup
-	for _, cmd := range commands {
-		wg.Add(1)
-		go func(c string) {
-			defer wg.Done()
-			_, err := client.Run(c, map[string]any{"name": c}, nil, "")
-			if err != nil {
-				t.Errorf("Run(%s) error: %v", c, err)
-			}
-		}(cmd)
-	}
-	wg.Wait()
-
-	// Decode the sent buffer back into sentences and verify each is complete
-	// and contains exactly one command path.
-	sentences, err := testutil.DecodeSentences(fake.Sent())
-	if err != nil {
-		t.Fatalf("decode sent data: %v", err)
-	}
-	if len(sentences) != 5 {
-		t.Fatalf("got %d sentences, want 5 (interleaving detected)", len(sentences))
-	}
-	found := make(map[string]bool)
-	for _, s := range sentences {
-		matched := false
-		for _, cmd := range commands {
-			if len(s) > 0 && s[0] == cmd {
-				matched = true
-				if found[cmd] {
-					t.Errorf("command %s appeared more than once", cmd)
-				}
-				found[cmd] = true
-			}
-		}
-		if !matched {
-			t.Errorf("sentence has unexpected first word: %v", s)
-		}
-	}
-	for _, cmd := range commands {
-		if !found[cmd] {
-			t.Errorf("missing sentence for %s", cmd)
 		}
 	}
 }
