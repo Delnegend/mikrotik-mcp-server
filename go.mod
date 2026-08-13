@@ -1,6 +1,6 @@
 module github.com/Delnegend/mikrotik-mcp
 
-go 1.25.5
+go 1.26.5
 
 require (
 	github.com/itchyny/gojq v0.12.19
