@@ -86,6 +86,54 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes from commits since the last tag
+        id: notes
+        run: |
+          PREV="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            RANGE="$PREV..HEAD"
+            COMPARE="https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...v${VERSION}"
+          else
+            RANGE="$(git rev-list --max-parents=0 HEAD | tail -1)..HEAD"
+            COMPARE=""
+          fi
+          echo "Generating notes for range $RANGE"
+          TMP="$(mktemp -d)"
+          git log --pretty=format:"%s" "$RANGE" > "$TMP/all"
+          {
+            echo "## What's Changed"
+            echo
+            for spec in "feat **Features**" "fix **Bug Fixes**" "docs **Documentation**" "ci **CI & Workflows**" "test **Tests**" "refactor **Refactoring**" "perf **Performance**" "chore **Chores**"; do
+              type="${spec%% *}"
+              grep -E "^${type}(\\([^)]*\\))?: " "$TMP/all" > "$TMP/items" || continue
+              echo "${spec#* }"
+              sed -E "s/^${type}(\\([^)]*\\))?: +/  - /" "$TMP/items"
+              echo
+            done
+            grep -Ev "^[a-z]+(\\([^)]*\\))?: " "$TMP/all" > "$TMP/other" || true
+            if [ -s "$TMP/other" ]; then
+              echo "**Other**"
+              sed 's/^/  - /' "$TMP/other"
+              echo
+            fi
+            echo "**Downloads**"
+            echo "- **Windows**: \`.7z\` (extract with 7-Zip)"
+            echo "- **Linux / macOS**: \`.tar.xz\` (extract with \`tar -xJf\`)"
+            echo "- Each archive contains \`mikrotik-mcp\` and \`rosbackup\`"
+            if [ -n "$COMPARE" ]; then
+              echo
+              echo "**Full Changelog**: $COMPARE"
+            fi
+          } > notes.md
+          echo "=== draft release notes ==="
+          cat notes.md
+          echo "notes=$PWD/notes.md" >> "$GITHUB_OUTPUT"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
@@ -96,20 +144,7 @@ jobs:
         with:
           tag_name: v${{ inputs.release_version }}
           name: v${{ inputs.release_version }}
-          body: |
-            ## v${{ inputs.release_version }}
-
-            Each archive contains two binaries:
-
-            - **`mikrotik-mcp`** — the MCP server (Windows: `.exe`)
-            - **`rosbackup`** — the backup/restore CLI (Windows: `.exe`)
-
-            Platforms: Linux (amd64, arm64), macOS (arm64), Windows (amd64).
-
-            Download the archive for your platform below:
-
-            - **Windows**: `.7z` (extract with 7-Zip)
-            - **Linux / macOS**: `.tar.xz` (extract with `tar -xJf`)
+          body_path: ${{ steps.notes.outputs.notes }}
           draft: false
           prerelease: false
           files: |
