@@ -757,3 +757,251 @@ func TestSafeModeCommitPersistsChanges(t *testing.T) {
 	})
 	t.Cleanup(func() { chrClient.Remove("/ip/firewall/address-list", items[0][".id"]) })
 }
+
+// --- Enthusiast workflows: interface/IP/DHCP setup -------------------------
+
+func waitForOne(t *testing.T, menu, query string) map[string]string {
+	t.Helper()
+	var items []map[string]string
+	waitFor(t, fmt.Sprintf("%s %q to appear", menu, query), func() bool {
+		var err error
+		items, err = chrClient.Print(menu, nil, []string{query}, nil)
+		return err == nil && len(items) == 1
+	})
+	return items[0]
+}
+
+func waitForGone(t *testing.T, menu, query string) {
+	t.Helper()
+	waitFor(t, fmt.Sprintf("%s %q to disappear", menu, query), func() bool {
+		items, err := chrClient.Print(menu, nil, []string{query}, nil)
+		return err == nil && len(items) == 0
+	})
+}
+
+func TestToolVLANLifecycle(t *testing.T) {
+	requireRouter(t)
+
+	_ = toolText(t, "vlan_add",
+		"attributes", map[string]any{"name": "mcp-vlan", "vlan-id": 3999, "interface": "ether1"})
+	vlanID := waitForOne(t, "/interface/vlan", "name=mcp-vlan")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/interface/vlan", vlanID) })
+
+	if text := toolText(t, "vlan_list"); !strings.Contains(text, "mcp-vlan") {
+		t.Errorf("vlan_list missing mcp-vlan: %s", text)
+	}
+
+	_ = toolText(t, "vlan_remove", "item_id", vlanID)
+	waitForGone(t, "/interface/vlan", "name=mcp-vlan")
+}
+
+func TestToolBridgeWithVLANPort(t *testing.T) {
+	requireRouter(t)
+
+	_ = toolText(t, "bridge_add", "attributes", map[string]any{"name": "mcp-br"})
+	brID := waitForOne(t, "/interface/bridge", "name=mcp-br")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/interface/bridge", brID) })
+
+	_ = toolText(t, "vlan_add",
+		"attributes", map[string]any{"name": "mcp-vlan", "vlan-id": 3998, "interface": "ether1"})
+	vlanID := waitForOne(t, "/interface/vlan", "name=mcp-vlan")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/interface/vlan", vlanID) })
+
+	_ = toolText(t, "bridge_port_add",
+		"attributes", map[string]any{"bridge": "mcp-br", "interface": "mcp-vlan"})
+	portID := waitForOne(t, "/interface/bridge/port", "interface=mcp-vlan")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/interface/bridge/port", portID) })
+
+	if text := toolText(t, "bridge_port_list", "bridge", "mcp-br"); !strings.Contains(text, "mcp-vlan") {
+		t.Errorf("bridge_port_list missing mcp-vlan: %s", text)
+	}
+
+	_ = toolText(t, "bridge_port_remove", "item_id", portID)
+	waitForGone(t, "/interface/bridge/port", "interface=mcp-vlan")
+}
+
+func TestToolFullIPSetup(t *testing.T) {
+	requireRouter(t)
+
+	// A complete small-network setup an enthusiast would build: a VLAN, an
+	// address on it, an address pool, a DHCP network/server, and a static
+	// route via the VLAN gateway. Teardown (LIFO) reverses the setup order.
+	_ = toolText(t, "vlan_add",
+		"attributes", map[string]any{"name": "mcp-net", "vlan-id": 3997, "interface": "ether1"})
+	vlanID := waitForOne(t, "/interface/vlan", "name=mcp-net")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/interface/vlan", vlanID) })
+
+	_ = toolText(t, "resource_add", "menu", "ip/address",
+		"attributes", map[string]any{"address": "10.77.0.1/24", "interface": "mcp-net"})
+	addrID := waitForOne(t, "/ip/address", "address=10.77.0.1/24")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ip/address", addrID) })
+
+	_ = toolText(t, "resource_add", "menu", "ip/pool",
+		"attributes", map[string]any{"name": "mcp-pool", "ranges": "10.77.0.100-10.77.0.200"})
+	poolID := waitForOne(t, "/ip/pool", "name=mcp-pool")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ip/pool", poolID) })
+
+	_ = toolText(t, "resource_add", "menu", "ip/dhcp-server/network",
+		"attributes", map[string]any{"address": "10.77.0.0/24", "gateway": "10.77.0.1", "dns-server": "1.1.1.1"})
+	netID := waitForOne(t, "/ip/dhcp-server/network", "address=10.77.0.0/24")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ip/dhcp-server/network", netID) })
+
+	_ = toolText(t, "resource_add", "menu", "ip/dhcp-server",
+		"attributes", map[string]any{"name": "mcp-dhcp", "interface": "mcp-net", "address-pool": "mcp-pool"})
+	dhcpID := waitForOne(t, "/ip/dhcp-server", "name=mcp-dhcp")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ip/dhcp-server", dhcpID) })
+
+	if text := toolText(t, "dhcp_server_list"); !strings.Contains(text, "mcp-dhcp") {
+		t.Errorf("dhcp_server_list missing mcp-dhcp: %s", text)
+	}
+
+	_ = toolText(t, "resource_add", "menu", "ip/route",
+		"attributes", map[string]any{"dst-address": "198.51.100.0/24", "gateway": "10.77.0.1"})
+	routeID := waitForOne(t, "/ip/route", "dst-address=198.51.100.0/24")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ip/route", routeID) })
+}
+
+// TestToolRoutedMultiVLANSubnets turns a blank router into a multi-subnet
+// LAN router: two VLANs on the WAN interface, both wired into a bridge, each
+// with its own routed subnet, address pool, DHCP network (with gateway) and
+// DHCP server. WAN connectivity is proven by the connected routes and a ping
+// to the upstream gateway.
+func TestToolRoutedMultiVLANSubnets(t *testing.T) {
+	requireRouter(t)
+
+	// L2: bridge with two VLANs wired into it.
+	_ = toolText(t, "bridge_add", "attributes", map[string]any{"name": "mcp-fab-br"})
+	brID := waitForOne(t, "/interface/bridge", "name=mcp-fab-br")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/interface/bridge", brID) })
+
+	for _, v := range []struct {
+		name string
+		id   int
+	}{
+		{"mcp-fab10", 10}, {"mcp-fab20", 20},
+	} {
+		_ = toolText(t, "vlan_add",
+			"attributes", map[string]any{"name": v.name, "vlan-id": v.id, "interface": "ether1"})
+		vlanID := waitForOne(t, "/interface/vlan", "name="+v.name)[".id"]
+		t.Cleanup(func() { chrClient.Remove("/interface/vlan", vlanID) })
+
+		_ = toolText(t, "bridge_port_add",
+			"attributes", map[string]any{"bridge": "mcp-fab-br", "interface": v.name})
+		portID := waitForOne(t, "/interface/bridge/port", "interface="+v.name)[".id"]
+		t.Cleanup(func() { chrClient.Remove("/interface/bridge/port", portID) })
+	}
+
+	if text := toolText(t, "bridge_port_list", "bridge", "mcp-fab-br"); !strings.Contains(text, "mcp-fab10") || !strings.Contains(text, "mcp-fab20") {
+		t.Errorf("bridge_port_list missing wired VLANs: %s", text)
+	}
+
+	// L3: per-subnet address, pool, DHCP network (with gateway) and DHCP server.
+	for _, s := range []struct{ subnet, gw, iface, pool, dhcp, range_ string }{
+		{"10.11.0.0/24", "10.11.0.1", "mcp-fab10", "mcp-fab10-pool", "mcp-fab-dhcp10", "10.11.0.100-10.11.0.200"},
+		{"10.12.0.0/24", "10.12.0.1", "mcp-fab20", "mcp-fab20-pool", "mcp-fab-dhcp20", "10.12.0.100-10.12.0.200"},
+	} {
+		_ = toolText(t, "resource_add", "menu", "ip/address",
+			"attributes", map[string]any{"address": s.gw + "/24", "interface": s.iface})
+		addrID := waitForOne(t, "/ip/address", "address="+s.gw+"/24")[".id"]
+		t.Cleanup(func() { chrClient.Remove("/ip/address", addrID) })
+
+		_ = toolText(t, "resource_add", "menu", "ip/pool",
+			"attributes", map[string]any{"name": s.pool, "ranges": s.range_})
+		poolID := waitForOne(t, "/ip/pool", "name="+s.pool)[".id"]
+		t.Cleanup(func() { chrClient.Remove("/ip/pool", poolID) })
+
+		_ = toolText(t, "resource_add", "menu", "ip/dhcp-server/network",
+			"attributes", map[string]any{"address": s.subnet, "gateway": s.gw, "dns-server": "1.1.1.1"})
+		netID := waitForOne(t, "/ip/dhcp-server/network", "address="+s.subnet)[".id"]
+		t.Cleanup(func() { chrClient.Remove("/ip/dhcp-server/network", netID) })
+
+		_ = toolText(t, "resource_add", "menu", "ip/dhcp-server",
+			"attributes", map[string]any{"name": s.dhcp, "interface": s.iface, "address-pool": s.pool})
+		dhcpID := waitForOne(t, "/ip/dhcp-server", "name="+s.dhcp)[".id"]
+		t.Cleanup(func() { chrClient.Remove("/ip/dhcp-server", dhcpID) })
+	}
+
+	if text := toolText(t, "dhcp_network_list"); !strings.Contains(text, "10.11.0.0/24") || !strings.Contains(text, "10.12.0.0/24") {
+		t.Errorf("dhcp_network_list missing routed subnets: %s", text)
+	}
+
+	// Routing: both subnets are connected and the router can reach its WAN
+	// gateway (the default route provided by the ether1 DHCP client).
+	for _, subnet := range []string{"10.11.0.0/24", "10.12.0.0/24"} {
+		waitForOne(t, "/ip/route", "dst-address="+subnet)
+	}
+	if text := toolText(t, "tool_ping", "address", "10.0.2.2", "count", 1); !strings.Contains(text, "Ping") {
+		t.Errorf("tool_ping to WAN gateway: %s", text)
+	}
+}
+
+// TestToolIPv6Setup builds a ULA network: global address on a VLAN, an
+// address pool, a DHCPv6 server, and a static route via the VLAN gateway.
+func TestToolIPv6Setup(t *testing.T) {
+	requireRouter(t)
+
+	_ = toolText(t, "vlan_add",
+		"attributes", map[string]any{"name": "mcp-vlan6", "vlan-id": 6, "interface": "ether1"})
+	vlanID := waitForOne(t, "/interface/vlan", "name=mcp-vlan6")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/interface/vlan", vlanID) })
+
+	_ = toolText(t, "resource_add", "menu", "ipv6/address",
+		"attributes", map[string]any{"address": "fd00:11::1/64", "interface": "mcp-vlan6"})
+	addrID := waitForOne(t, "/ipv6/address", "address=fd00:11::1/64")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ipv6/address", addrID) })
+
+	_ = toolText(t, "resource_add", "menu", "ipv6/pool",
+		"attributes", map[string]any{"name": "mcp6pool", "prefix": "fd00:11::/64", "prefix-length": 64})
+	poolID := waitForOne(t, "/ipv6/pool", "name=mcp6pool")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ipv6/pool", poolID) })
+
+	_ = toolText(t, "resource_add", "menu", "ipv6/dhcp-server",
+		"attributes", map[string]any{"name": "mcp6dhcp", "interface": "mcp-vlan6", "address-pool": "mcp6pool"})
+	dhcpID := waitForOne(t, "/ipv6/dhcp-server", "name=mcp6dhcp")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ipv6/dhcp-server", dhcpID) })
+
+	_ = toolText(t, "resource_add", "menu", "ipv6/route",
+		"attributes", map[string]any{"dst-address": "2001:db8:1::/48", "gateway": "fd00:11::2"})
+	route := waitForOne(t, "/ipv6/route", "dst-address=2001:db8:1::/48")
+	if route["static"] != "true" {
+		t.Errorf("expected static ipv6 route, got %v", route)
+	}
+	t.Cleanup(func() { chrClient.Remove("/ipv6/route", route[".id"]) })
+
+	// The ULA subnet must be directly connected via the VLAN.
+	waitForOne(t, "/ipv6/route", "dst-address=fd00:11::/64")
+}
+
+// TestToolPPPoEServerSetup builds a PPPoE server for an ISP-style access
+// concentrator: address pool, PPP profile (local + remote addresses), the
+// server itself on the WAN interface, and a client secret.
+func TestToolPPPoEServerSetup(t *testing.T) {
+	requireRouter(t)
+
+	_ = toolText(t, "resource_add", "menu", "ip/pool",
+		"attributes", map[string]any{"name": "mcp-ppp-pool", "ranges": "10.88.0.2-10.88.0.100"})
+	poolID := waitForOne(t, "/ip/pool", "name=mcp-ppp-pool")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ip/pool", poolID) })
+
+	_ = toolText(t, "resource_add", "menu", "ppp/profile",
+		"attributes", map[string]any{"name": "mcp-ppp", "local-address": "10.88.0.1", "remote-address": "mcp-ppp-pool"})
+	profID := waitForOne(t, "/ppp/profile", "name=mcp-ppp")[".id"]
+	t.Cleanup(func() { chrClient.Remove("/ppp/profile", profID) })
+
+	_ = toolText(t, "resource_add", "menu", "interface/pppoe-server/server",
+		"attributes", map[string]any{"service-name": "mcp-pppoe", "interface": "ether1", "default-profile": "mcp-ppp", "disabled": false})
+	server := waitForOne(t, "/interface/pppoe-server/server", "service-name=mcp-pppoe")
+	if server["disabled"] != "false" {
+		t.Errorf("expected pppoe server enabled, got %v", server)
+	}
+	t.Cleanup(func() { chrClient.Remove("/interface/pppoe-server/server", server[".id"]) })
+
+	_ = toolText(t, "ppp_secret_add", "attributes",
+		map[string]any{"name": "mcp-ppp-user", "password": "mcp-ppp-pw", "service": "pppoe", "profile": "mcp-ppp"})
+	secret := waitForOne(t, "/ppp/secret", "name=mcp-ppp-user")
+	t.Cleanup(func() { chrClient.Remove("/ppp/secret", secret[".id"]) })
+
+	if text := toolText(t, "ppp_secret_list"); !strings.Contains(text, "mcp-ppp-user") {
+		t.Errorf("ppp_secret_list missing pppoe user: %s", text)
+	}
+}
