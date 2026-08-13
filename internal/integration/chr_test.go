@@ -1005,3 +1005,73 @@ func TestToolPPPoEServerSetup(t *testing.T) {
 		t.Errorf("ppp_secret_list missing pppoe user: %s", text)
 	}
 }
+
+// TestBackupRestoreRoundTrip runs the full backup/restore cycle against the
+// live router: save a binary backup, download it, upload it back under a new
+// name, and load it. Loading a backup of the same config is harmless, but the
+// load kills the shared API session, so the test swaps in a fresh client.
+// Opt-in: MIKROTIK_TEST_RESTORE=1.
+func TestBackupRestoreRoundTrip(t *testing.T) {
+	if os.Getenv("MIKROTIK_TEST_RESTORE") != "1" {
+		t.Skip("set MIKROTIK_TEST_RESTORE=1 to run the backup/restore round trip")
+	}
+	requireRouter(t)
+	if chrPass == "" {
+		t.Skip("round trip needs a non-empty password (provision with cmd/chrprovision)")
+	}
+
+	stamp := time.Now().UnixNano() % 100000
+	backupName := fmt.Sprintf("backups/mcp-rt-%d", stamp)
+	if _, err := chrClient.Run("/system/backup/save", map[string]any{"name": backupName}, nil, ""); err != nil {
+		t.Fatalf("backup save: %v", err)
+	}
+	routerPath := backupName + ".backup"
+	waitForOne(t, "/file", "name="+routerPath)
+	t.Cleanup(func() { chrClient.Remove("/file", waitForOne(t, "/file", "name="+routerPath)[".id"]) })
+
+	dl := downloads.NewSCPFileDownloader(chrSSHSettings(t))
+	local := filepath.Join(t.TempDir(), "mcp-rt.backup")
+	if err := dl.DownloadFile(routerPath, local); err != nil {
+		t.Fatalf("download: %v", err)
+	}
+
+	upName := fmt.Sprintf("backups/mcp-rt2-%d", stamp)
+	if err := dl.UploadFile(local, upName+".backup"); err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	upPath := upName + ".backup"
+	waitForOne(t, "/file", "name="+upPath)
+
+	// Load through a dedicated client; the load drops the API session.
+	cl2 := newTestClient(t)
+	if _, err := cl2.Run("/system/backup/load", map[string]any{"name": upPath, "password": ""}, nil, ""); err != nil {
+		t.Fatalf("backup load: %v", err)
+	}
+
+	// The shared client is dead now; reconnect and hand a live client back to
+	// the package so subsequent tests keep working. No per-test cleanup: it
+	// is closed by TestMain.
+	chrClient.Close()
+	chrClient = nil
+	var fresh *client.RouterOSClient
+	for range 15 {
+		cand := client.NewRouterOSClient(chrHost, chrUser, chrPass,
+			client.WithTLS(false), client.WithPort(chrPort), client.WithTimeout(15*time.Second))
+		if err := cand.Open(); err == nil {
+			fresh = cand
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if fresh == nil {
+		t.Fatal("router did not come back after backup/load")
+	}
+	chrClient = fresh
+
+	if text := toolText(t, "system_identity_get"); !strings.Contains(text, "mikrotik-mcp-test") {
+		t.Errorf("identity after restore = %s", text)
+	}
+	t.Cleanup(func() {
+		chrClient.Remove("/file", waitForOne(t, "/file", "name="+upPath)[".id"])
+	})
+}
