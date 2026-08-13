@@ -7,7 +7,8 @@
 set -euo pipefail
 
 if [ -e /dev/kvm ]; then
-  sudo chmod 666 /dev/kvm
+  sudo chmod 666 /dev/kvm 2>/dev/null || \
+    echo "warning: cannot make /dev/kvm world-accessible; KVM acceleration disabled (software emulation fallback active)"
 fi
 
 go version

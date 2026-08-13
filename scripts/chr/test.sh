@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # scripts/chr/test.sh - run the full test suite against the RouterOS CHR VM.
-# Linux/devcontainer twin of test.ps1 (which stays as the Windows-host path).
 #
 # Boots the CHR (idempotent via up.sh), provisions it if fresh, then runs
 # `go test ./...` with the VM environment set. The behavioral integration
@@ -31,11 +30,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-UP_ARGS=(--no-install)
-[ "$FRESH" = 1 ] && UP_ARGS+=(--fresh)
-
 echo "==> booting CHR (idempotent)"
-bash "$HERE/up.sh" "${UP_ARGS[@]}"
+bash "$HERE/up.sh" ${FRESH:+--fresh}
 
 cd "$REPO"
 echo "==> ensuring provisioned (best effort; 'already provisioned' is fine)"

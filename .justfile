@@ -1,15 +1,13 @@
 # MikroTik MCP server — dev workflows
 #
-# Container-native recipes (Linux shell). Run them inside the devcontainer,
-# the primary development environment (Go, just and qemu are preinstalled
-# there). On a bare Linux host the first `just up` installs qemu via sudo; on
-# Windows use the devcontainer or scripts/chr/test.ps1 directly.
+# Devcontainer recipes (Linux shell): run them inside the devcontainer, where
+# Go, just and qemu are preinstalled (see .devcontainer/Dockerfile).
 
 # List all recipes
 default:
     just --list
 
-# Boot the CHR test router (idempotent). First run installs qemu via sudo.
+# Boot the CHR test router (idempotent)
 up:
     bash scripts/chr/up.sh
 

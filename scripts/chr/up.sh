@@ -2,6 +2,10 @@
 # Provisions a disposable MikroTik Cloud Hosted Router (CHR) in QEMU for
 # integration tests, using the OFFICIAL CHR image from download.mikrotik.com.
 #
+# Intended to run inside the devcontainer, where qemu/unzip/netcat/curl are
+# preinstalled (see .devcontainer/Dockerfile) and /dev/kvm is made usable by
+# .devcontainer/postinstall.sh. Falls back to software emulation otherwise.
+#
 # RouterOS 7 CHR boots with the API service enabled by default, so after the
 # VM is up the router is immediately usable at 127.0.0.1:8728 with user
 # "admin" and an EMPTY password. Optionally harden it afterwards:
@@ -9,12 +13,11 @@
 #   go run ./cmd/chrprovision -password admin      # set pw, enable services
 #
 # Usage:
-#   bash scripts/chr/up.sh [--fresh] [--no-install]
-#     --fresh       destroy existing CHR state and start from a clean image
-#     --no-install  skip `apt-get install` (assume qemu, unzip, netcat, curl)
+#   bash scripts/chr/up.sh [--fresh]
+#     --fresh  destroy existing CHR state and start from a clean image
 #
 # Env:
-#   CHR_VERSION     RouterOS version (default 7.21)
+#   CHR_VERSION     RouterOS version (default 7.23.3)
 #   CHR_API_PORT    host port for plain API   (default 8728)
 #   CHR_APISSL_PORT host port for SSL API     (default 8729)
 #   CHR_SSH_PORT    host port for SSH         (default 2222)
@@ -32,11 +35,9 @@ WINBOX_PORT="${CHR_WINBOX_PORT:-8291}"
 SERIAL_PORT="${CHR_SERIAL_PORT:-5555}"
 
 FRESH=0
-INSTALL=1
 for a in "$@"; do
   case "$a" in
     --fresh) FRESH=1 ;;
-    --no-install) INSTALL=0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -51,17 +52,6 @@ port_open() {
   # true when a TCP connection to host:port succeeds (no external nc needed)
   (exec 3<>"/dev/tcp/$1/$2") 2>/dev/null
 }
-
-if [ "$INSTALL" = 1 ] && \
-   { ! command -v qemu-system-x86_64 >/dev/null || ! command -v unzip >/dev/null || \
-     ! command -v nc >/dev/null || ! command -v curl >/dev/null; }; then
-  echo "Installing qemu-system-x86, unzip, netcat, curl (sudo)..."
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq qemu-system-x86 unzip netcat-openbsd curl
-fi
-for c in qemu-system-x86_64 unzip nc curl; do
-  command -v "$c" >/dev/null || { echo "missing dependency: $c (rerun without --no-install)" >&2; exit 1; }
-done
 
 running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
 
@@ -87,28 +77,12 @@ if ! running; then
     qemu-img create -f qcow2 -F raw -b "$IMG" "$COW" >/dev/null
   fi
 
-  # KVM acceleration: use it only when /dev/kvm is actually usable. WSL2
-  # exposes /dev/kvm but the user may lack group access; with passwordless
-  # sudo we join the kvm group and re-exec under `sg kvm` immediately (no
-  # WSL restart needed). Falls back to TCG otherwise.
-  if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
-    if [ "${CHR_RERUN_AS_KVM:-0}" != "1" ]; then
-      if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx kvm; then
-        if getent group kvm >/dev/null && sudo -n true 2>/dev/null; then
-          echo "Joining the kvm group for acceleration (passwordless sudo)..."
-          sudo usermod -aG kvm "$USER"
-        fi
-      fi
-      if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx kvm && command -v sg >/dev/null; then
-        echo "Re-running under the kvm group for hardware acceleration..."
-        export CHR_RERUN_AS_KVM=1
-        exec sg kvm -c "cd '$HERE' && bash '$HERE/up.sh' $*"
-      fi
-    fi
+  # KVM acceleration when usable; postinstall.sh makes /dev/kvm world-usable
+  # in the devcontainer, otherwise fall back to TCG (slower boot).
+  ACCEL=()
+  if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL=(-enable-kvm); else
     echo "KVM unavailable - using software emulation (slower boot)."
   fi
-  ACCEL=()
-  if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL=(-enable-kvm); fi
 
   # Boot detached (setsid) so the VM survives if the launching shell dies.
   # SLIRP user networking: no NAT/bridge config; guest reaches host via DHCP.
@@ -135,8 +109,8 @@ CHR ready.
   WinBox   tcp://127.0.0.1:$WINBOX_PORT   (connect by IP; discovery/L2 won't work over SLIRP)
   console  nc 127.0.0.1 $SERIAL_PORT
 
-Run the integration tests (Windows side, Go lives there):
-  .\scripts\chr\test.ps1                                          # whole suite
+Run the integration tests:
+  just test                    # whole suite against the VM
   MIKROTIK_TEST_HOST=127.0.0.1 MIKROTIK_TEST_USER=admin go test ./internal/integration/ -v
 
 Optionally harden the router (set admin password, enable services, identity):
