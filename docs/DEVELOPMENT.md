@@ -73,11 +73,10 @@ misconfigured run is loud, not silently green.
 
 [Cloud Hosted Router (CHR)](https://mikrotik.com/download/chr) is MikroTik's
 official virtualized RouterOS, freely downloadable with a Free license. The
-`scripts/chr/` workflow boots it in QEMU (the devcontainer is the recommended
-host; a bare Linux host works too — the first `just up` installs qemu via
-sudo; Windows hosts use the devcontainer or `scripts/chr/test.ps1` directly),
-headless, disposable, with KVM acceleration and SLIRP NAT (no network
-config). Run from the repo root:
+`scripts/chr/` workflow boots it in QEMU headless, disposable, with KVM
+acceleration and SLIRP NAT (no network config). Run it inside the devcontainer
+(the recommended environment; qemu is preinstalled there). Run from the repo
+root:
 
 ```bash
 just up            # boot (idempotent; ~30-60 s with KVM)
@@ -95,10 +94,6 @@ bash scripts/chr/up.sh
 go run ./cmd/chrprovision -password admin
 MIKROTIK_TEST_HOST=127.0.0.1 MIKROTIK_TEST_USER=admin MIKROTIK_TEST_PASSWORD=admin go test ./internal/integration/ -v
 ```
-
-Windows hosts without the devcontainer: `scripts/chr/test.ps1` wraps the same
-flow, driving `up.sh` through WSL2.
-
 Notes:
 
 - **WinBox**: connect by IP to `127.0.0.1` (port `8291`). Neighbor *discovery*
