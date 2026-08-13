@@ -241,6 +241,10 @@ rosbackup restore -host 192.168.88.1 -user admin -password PW \
 - Flags fall back to the `MIKROTIK_*` environment variables (see above).
   Prefer `-fingerprint`; `-insecure` skips host key verification (MITM risk).
 
+See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) for the full guide:
+scheduling backups, restoring after a disaster, encrypted backups, host key
+verification, and troubleshooting.
+
 ## Acknowledgements
 
 This project is a Go port of [parkerkane/mikrotik-manager](https://github.com/parkerkane/mikrotik-manager), originally written in Python (FastMCP); the tool semantics and operational behavior are carried over.

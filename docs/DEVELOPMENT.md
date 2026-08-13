@@ -123,6 +123,9 @@ CHR disk image (keyed on `CHR_VERSION`, default `7.23.3`):
 
 ## Official references
 
+- **Backup & restore** — see [BACKUP-RESTORE.md](BACKUP-RESTORE.md) for the
+  `rosbackup` CLI guide (scheduling, disaster recovery, encrypted backups).
+
 The client is implemented and tested against MikroTik's official artifacts:
 
 - **API protocol** — [RouterOS API](https://manual.mikrotik.com/docs/developer-guides/api/)
