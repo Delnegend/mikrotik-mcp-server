@@ -17,7 +17,7 @@ func TestBinaryRunsAsStdioMCPServer(t *testing.T) {
 	}
 
 	// Build the binary
-	binary := "mikrotik-mcp-test.exe"
+	binary := "mikrotik-mcp-test"
 	build := exec.Command("go", "build", "-o", binary, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build failed: %v\n%s", err, out)
