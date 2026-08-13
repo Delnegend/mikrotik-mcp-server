@@ -40,6 +40,7 @@ type FileTransferSettings struct {
 	SSHFingerprintSHA256 string
 	Port                 int
 	Timeout              time.Duration
+	Insecure             bool
 }
 
 type SCPFileDownloader struct {
@@ -126,6 +127,45 @@ func (d *SCPFileDownloader) DownloadFile(routerPath, localPath string) error {
 	return err
 }
 
+// UploadFile copies a local file onto the router over SFTP. It creates (or
+// overwrites) the remote file at routerPath.
+func (d *SCPFileDownloader) UploadFile(localPath, routerPath string) error {
+	remoteName := strings.TrimLeft(routerPath, "/")
+
+	localFile, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to open local file '%s': %v", localPath, err)
+	}
+	defer localFile.Close()
+
+	sshClient, err := d.connect()
+	if err != nil {
+		return fmt.Errorf("failed to connect to SCP service on %s:%d: %w",
+			d.settings.Host, d.settings.Port, err)
+	}
+	defer sshClient.Close()
+
+	sftpClient, err := NewSFTPClient(sshClient)
+	if err != nil {
+		return fmt.Errorf("%w: failed to open SFTP session: %v", ErrSCPConnectFailed, err)
+	}
+	defer sftpClient.Close()
+
+	remoteFile, err := sftpClient.Create(remoteName)
+	if err != nil {
+		return fmt.Errorf("failed to upload router file '%s': %v", remoteName, err)
+	}
+
+	if _, err := io.Copy(remoteFile, localFile); err != nil {
+		remoteFile.Close()
+		return fmt.Errorf("failed to upload router file '%s': %v", remoteName, err)
+	}
+	if err := remoteFile.Close(); err != nil {
+		return fmt.Errorf("failed to finalize upload of '%s': %v", remoteName, err)
+	}
+	return nil
+}
+
 func (d *SCPFileDownloader) connect() (*ssh.Client, error) {
 	return dialSSH(d.settings)
 }
@@ -175,7 +215,7 @@ func hostKeyCallback(settings *FileTransferSettings) (ssh.HostKeyCallback, error
 	if settings.SSHFingerprintSHA256 != "" {
 		return sha256FingerprintPolicy(settings.Host, settings.SSHFingerprintSHA256), nil
 	}
-	if helpers.ParseBool(os.Getenv("MIKROTIK_SCP_INSECURE"), false) {
+	if settings.Insecure || helpers.ParseBool(os.Getenv("MIKROTIK_SCP_INSECURE"), false) {
 		return ssh.InsecureIgnoreHostKey(), nil
 	}
 	return nil, errors.New("SSH host key verification is disabled: MIKROTIK_SCP_HOST_FINGERPRINT_SHA256 must be set (or MIKROTIK_SCP_INSECURE=1 to opt out)")
@@ -249,6 +289,7 @@ func LoadFileTransferSettings(apiHost string) (*FileTransferSettings, error) {
 		SSHFingerprintSHA256: fingerprint,
 		Port:                 helpers.IntFromEnv("MIKROTIK_SCP_PORT", 22),
 		Timeout:              time.Duration(helpers.FloatFromEnv("MIKROTIK_SCP_TIMEOUT", 30.0) * float64(time.Second)),
+		Insecure:             helpers.ParseBool(os.Getenv("MIKROTIK_SCP_INSECURE"), false),
 	}, nil
 }
 
