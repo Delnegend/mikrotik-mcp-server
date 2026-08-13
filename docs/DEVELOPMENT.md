@@ -111,7 +111,9 @@ Notes:
 GitHub-hosted `ubuntu-latest` runners expose `/dev/kvm` (hardware-accelerated
 virtualization), so the CHR VM boots with KVM in CI; when KVM is absent it
 falls back to TCG software emulation (slower but correct). Both workflows
-install the qemu toolchain and run `bash scripts/chr/test.sh --down`:
+install the qemu toolchain and run `bash scripts/chr/test.sh --down`, and both
+cache the Go module/build caches (via `actions/setup-go`) plus the downloaded
+CHR disk image (keyed on `CHR_VERSION`, default `7.23.3`):
 
 - **`.github/workflows/integration.yml`** — runs the full suite against a live
   CHR on every push to `master` and every pull request.

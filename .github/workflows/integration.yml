@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  CHR_VERSION: 7.23.3
+
 jobs:
   chr:
     name: Full suite against a live CHR
@@ -21,6 +24,13 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          cache: true
+
+      - name: Cache CHR image
+        uses: actions/cache@v6
+        with:
+          path: scripts/chr/chr-${{ env.CHR_VERSION }}.img
+          key: chr-${{ env.CHR_VERSION }}
 
       - name: Install CHR toolchain
         run: |

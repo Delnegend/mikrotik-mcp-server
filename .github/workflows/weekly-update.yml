@@ -9,6 +9,9 @@ permissions:
   contents: write
   pull-requests: write
 
+env:
+  CHR_VERSION: 7.23.3
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -23,6 +26,7 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Update dependencies
         run: |
@@ -35,6 +39,12 @@ jobs:
           if ! git diff --quiet; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Cache CHR image
+        uses: actions/cache@v6
+        with:
+          path: scripts/chr/chr-${{ env.CHR_VERSION }}.img
+          key: chr-${{ env.CHR_VERSION }}
 
       - name: Install CHR toolchain
         run: |
