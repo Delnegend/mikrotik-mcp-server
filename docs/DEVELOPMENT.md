@@ -106,6 +106,19 @@ Notes:
 - The opt-in `MIKROTIK_TEST_PASSWORDLESS=1` runs a real SSH password
   rotation test (uploads a throwaway key, rotates, restores the password).
 
+## CI: the CHR in GitHub Actions
+
+GitHub-hosted `ubuntu-latest` runners expose `/dev/kvm` (hardware-accelerated
+virtualization), so the CHR VM boots with KVM in CI; when KVM is absent it
+falls back to TCG software emulation (slower but correct). Both workflows
+install the qemu toolchain and run `bash scripts/chr/test.sh --down`:
+
+- **`.github/workflows/integration.yml`** — runs the full suite against a live
+  CHR on every push to `master` and every pull request.
+- **`.github/workflows/weekly-update.yml`** — Monday 02:00 UTC: bumps patch
+  dependencies, then runs the full CHR suite. A failing suite blocks the
+  dependency PR from opening.
+
 ## Official references
 
 The client is implemented and tested against MikroTik's official artifacts:

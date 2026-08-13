@@ -12,6 +12,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -35,15 +36,22 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run checks
-        id: check
-        if: steps.changes.outputs.changed == 'true'
-        continue-on-error: true
+      - name: Install CHR toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-utils unzip netcat-openbsd
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm || true
+          else
+            echo "KVM unavailable; falling back to TCG software emulation"
+          fi
+
+      - name: Full suite against a live CHR
         run: |
           go build ./...
           go vet ./...
-          go test ./...
           test -z "$(gofmt -l .)"
+          bash scripts/chr/test.sh --down
 
       - name: Open PR for review
         if: steps.changes.outputs.changed == 'true'
