@@ -40,6 +40,9 @@ import (
 
 const defaultSSHPort = 22
 
+// version is stamped by the release build via -ldflags "-X main.version=...".
+var version = "dev"
+
 type connFlags struct {
 	host        string
 	apiPort     int

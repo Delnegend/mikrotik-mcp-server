@@ -16,6 +16,7 @@ on:
 
 env:
   BINARY_NAME: mikrotik-mcp
+  VERSION: ${{ inputs.release_version }}
 
 jobs:
   build:
@@ -27,7 +28,7 @@ jobs:
         goarch: [amd64, arm64]
         exclude:
           - goos: darwin
-            goarch: arm64
+            goarch: amd64
           - goos: windows
             goarch: arm64
 
@@ -39,29 +40,36 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          go build -v -ldflags="-X main.version=${{ inputs.release_version }}" -o "${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" .
+          go build -ldflags="-X main.version=$VERSION" -o "mikrotik-mcp${ext}" .
+          go build -ldflags="-X main.version=$VERSION" -o "rosbackup${ext}" ./cmd/rosbackup
 
-      - name: Compress binary
+      - name: Compress binaries
         run: |
           base="${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          ext=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          mkdir -p "$base"
+          mv "mikrotik-mcp${ext}" "rosbackup${ext}" "$base"/
           if [ "${{ matrix.goos }}" = "windows" ]; then
             if ! command -v 7z >/dev/null 2>&1; then
               sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full
             fi
-            7z a -t7z "${base}.7z" "${base}.exe" >/dev/null
+            7z a -t7z "${base}.7z" "$base" >/dev/null
           else
-            tar -cJf "${base}.tar.xz" "${base}"
+            tar -cJf "${base}.tar.xz" "$base"
           fi
-          rm -f "${base}.exe" "${base}"
-          ls -lh ${base}.*
+          rm -rf "$base"
+          ls -lh "${base}."*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -90,6 +98,13 @@ jobs:
           name: v${{ inputs.release_version }}
           body: |
             ## v${{ inputs.release_version }}
+
+            Each archive contains two binaries:
+
+            - **`mikrotik-mcp`** — the MCP server (Windows: `.exe`)
+            - **`rosbackup`** — the backup/restore CLI (Windows: `.exe`)
+
+            Platforms: Linux (amd64, arm64), macOS (arm64), Windows (amd64).
 
             Download the archive for your platform below:
 
