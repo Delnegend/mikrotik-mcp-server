@@ -215,6 +215,32 @@ The server exposes the following MCP tools, grouped by area:
 
 `jq_filter` is applied after RouterOS replies are normalized into JSON.
 
+## Backup & restore CLI
+
+`rosbackup` (part of this repo, built into the release archives) backs up and
+restores a full RouterOS configuration from any platform — a single Go binary,
+no shell or PowerShell twins:
+
+```sh
+rosbackup backup  -host 192.168.88.1 -user admin -password PW \
+                  -fingerprint SHA256:... -dir ./backups -export
+rosbackup restore -host 192.168.88.1 -user admin -password PW \
+                  -fingerprint SHA256:... -file ./backups/router-*.backup
+```
+
+- `backup` saves the full binary config (`/system/backup/save`, secrets
+  included) and downloads it over fingerprint-pinned SFTP; `-export` also
+  fetches a portable text `.rsc` export (`-sensitive` includes secrets).
+  Router files are removed after download unless `-keep-remote`.
+- `restore` uploads a `.backup` (loaded via `/system/backup/load`) or a `.rsc`
+  (imported), and always keeps a timestamped pre-restore backup locally first
+  unless `-no-preserve`. The API session drops after a binary restore — that
+  is expected; reconnect and verify.
+- RouterOS 7.17+ supports encrypted backups: pass the same `-backup-password`
+  to `backup` and `restore`.
+- Flags fall back to the `MIKROTIK_*` environment variables (see above).
+  Prefer `-fingerprint`; `-insecure` skips host key verification (MITM risk).
+
 ## Acknowledgements
 
 This project is a Go port of [parkerkane/mikrotik-manager](https://github.com/parkerkane/mikrotik-manager), originally written in Python (FastMCP); the tool semantics and operational behavior are carried over.

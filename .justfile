@@ -49,3 +49,11 @@ check:
     go fix ./...
     go fmt ./...
     go vet ./...
+
+# Backup the router config (binary + portable export) into ./backups
+backup:
+    go run ./cmd/rosbackup backup -dir backups -export
+
+# Restore a .backup/.rsc config onto the router (takes a pre-restore backup first)
+restore file:
+    go run ./cmd/rosbackup restore -file {{file}}
