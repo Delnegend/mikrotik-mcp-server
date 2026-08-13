@@ -63,10 +63,12 @@ if [ "$FRESH" = 1 ] && running; then
 fi
 
 if ! running; then
-  # Image download (official).
+  # Image download (official). --retry-all-errors covers mid-stream
+  # connection resets (seen on GitHub Actions), which plain --retry misses.
   if [ ! -f "$IMG" ]; then
     echo "Downloading official CHR $VER (~40 MB)..."
-    curl -fL --retry 3 -o "$IMG_ZIP" "https://download.mikrotik.com/routeros/$VER/chr-$VER.img.zip"
+    curl -fL --retry 5 --retry-all-errors --retry-delay 2 -o "$IMG_ZIP" "https://download.mikrotik.com/routeros/$VER/chr-$VER.img.zip"
+    unzip -tq "$IMG_ZIP" || { echo "downloaded image failed integrity check" >&2; rm -f "$IMG_ZIP"; exit 1; }
     unzip -o "$IMG_ZIP" -d "$HERE"
   fi
   [ -f "$IMG" ] || { echo "expected $IMG after unzip" >&2; ls -la "$HERE" >&2; exit 1; }
