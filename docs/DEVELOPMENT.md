@@ -117,7 +117,7 @@ CHR disk image (keyed on `CHR_VERSION`, default `7.23.3`):
 
 - **`.github/workflows/integration.yml`** — runs the full suite against a live
   CHR on every push to `master` and every pull request.
-- **`.github/workflows/weekly-update.yml`** — Monday 02:00 UTC: bumps patch
+- **`.github/workflows/weekly-update.yml`** — Monday 02:00 UTC: bumps
   dependencies, then runs the full CHR suite. A failing suite blocks the
   dependency PR from opening.
 
@@ -156,6 +156,6 @@ outweighs it, `internal/client` is the single seam to swap out.
 ## Releases
 
 Releases are cut automatically: a scheduled workflow updates dependencies
-every Monday (`go get -u=patch ./...`) and opens a PR for review; a separate
+every Monday (`go get -u ./...`) and opens a PR for review; a separate
 workflow builds the platform archives and publishes them to GitHub Releases
 when triggered manually.
