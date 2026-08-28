@@ -30,23 +30,25 @@ jobs:
 
       - name: Update dependencies
         run: |
-          go get -u=patch ./...
+          go get -u ./...
           go mod tidy
 
       - name: Check for changes
         id: changes
         run: |
-          if ! git diff --quiet; then
+          if [ -n "$(git status --porcelain)" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Cache CHR image
+        if: steps.changes.outputs.changed == 'true'
         uses: actions/cache@v6
         with:
           path: scripts/chr/chr-${{ env.CHR_VERSION }}.img
           key: chr-${{ env.CHR_VERSION }}
 
       - name: Install CHR toolchain
+        if: steps.changes.outputs.changed == 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-utils unzip netcat-openbsd
@@ -57,6 +59,7 @@ jobs:
           fi
 
       - name: Full suite against a live CHR
+        if: steps.changes.outputs.changed == 'true'
         run: |
           go build ./...
           go vet ./...
