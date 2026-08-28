@@ -1,6 +1,6 @@
 FROM debian:13-slim
 
-ARG GO_VERSION=1.26.5
+ARG GO_VERSION=1.27.0
 ARG GO_ARCH=linux-amd64
 
 ENV LANG=C.UTF-8
