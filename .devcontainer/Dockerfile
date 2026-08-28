@@ -20,9 +20,9 @@ RUN curl -fsSL -o /tmp/go.tgz \
 
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-RUN groupadd -g 1000 mikrotik-mcp && \
-    useradd -m -u 1000 -g mikrotik-mcp mikrotik-mcp && \
-    echo "mikrotik-mcp ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/mikrotik-mcp && \
-    chmod 0440 /etc/sudoers.d/mikrotik-mcp
+RUN groupadd -g 1000 mikrotik && \
+    useradd -m -u 1000 -g mikrotik mikrotik && \
+    echo "mikrotik ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/mikrotik && \
+    chmod 0440 /etc/sudoers.d/mikrotik
 
-USER mikrotik-mcp
+USER mikrotik
