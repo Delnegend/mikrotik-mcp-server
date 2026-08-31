@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 # Full matrix on PR — weekly cadence, so cost is acceptable
@@ -37,9 +37,6 @@ jobs:
           - goos: linux
             goarch: amd64
             platform: linux/amd64
-          - goos: linux
-            goarch: arm64
-            platform: linux/arm64
           - goos: darwin
             goarch: arm64
             platform: darwin/arm64

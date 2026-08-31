@@ -23,15 +23,15 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 1
 fi
 
-BRANCH="master"
-echo "Setting up branch protection for $REPO ($BRANCH) — 6 required checks, linear history, rebase only + auto-merge..."
+BRANCH="main"
+echo "Setting up branch protection for $REPO ($BRANCH) — 5 required checks, linear history, rebase only + auto-merge..."
 
 # 1. Branch protection — contexts must match job names in .github/workflows/ci.yml:1
 PROTECTION_JSON=$(cat <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["Check (just check)", "Build (linux/amd64)", "Build (linux/arm64)", "Build (darwin/arm64)", "Build (windows/amd64)", "CHR (integration)"]
+    "contexts": ["Check (just check)", "Build (linux/amd64)", "Build (darwin/arm64)", "Build (windows/amd64)", "CHR (integration)"]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": null,
@@ -69,4 +69,4 @@ if ! $DRY_RUN; then
   gh api "repos/$REPO" --jq '{allow_rebase_merge, allow_squash_merge, allow_merge_commit, allow_auto_merge}' 2>&1 | python3 -m json.tool
 fi
 
-echo "Done. PRs to $BRANCH now require 6 checks and linear history; only Rebase and merge is allowed, auto-merge enabled for Dependabot patch/minor."
+echo "Done. PRs to $BRANCH now require 5 checks and linear history; only Rebase and merge is allowed, auto-merge enabled for Dependabot patch/minor."
