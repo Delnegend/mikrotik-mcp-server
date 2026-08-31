@@ -13,16 +13,63 @@ on:
         required: true
         type: boolean
         default: false
+  pull_request:
+    types: [closed]
+    branches:
+      - master
 
 env:
   BINARY_NAME: mikrotik-mcp
-  VERSION: ${{ inputs.release_version }}
 
 jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       contains(github.event.pull_request.labels.*.name, 'dependencies'))
+    outputs:
+      release_version: ${{ steps.version.outputs.version }}
+      create_release: ${{ steps.version.outputs.create_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.release_version }}" >> "$GITHUB_OUTPUT"
+            echo "create_release=${{ inputs.create_release }}" >> "$GITHUB_OUTPUT"
+          else
+            # Calculate next patch version from latest tag (v0.0.0 -> v0.1.0 -> v0.1.1 ...)
+            LATEST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0.0')"
+            PLAIN_VERSION="${LATEST_TAG#v}"
+            IFS='.' read -r major minor patch <<< "$PLAIN_VERSION"
+            major="${major:-0}"
+            minor="${minor:-1}"
+            patch="${patch:-0}"
+            if [ "$LATEST_TAG" = "v0.0.0" ]; then
+              NEXT_VERSION="0.1.0"
+            else
+              NEXT_PATCH=$((patch + 1))
+              NEXT_VERSION="${major}.${minor}.${NEXT_PATCH}"
+            fi
+            echo "Latest tag: $LATEST_TAG, computed next patch version: $NEXT_VERSION"
+            echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "create_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
-    name: Build
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
@@ -31,7 +78,6 @@ jobs:
             goarch: amd64
           - goos: windows
             goarch: arm64
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -47,6 +93,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          VERSION: ${{ needs.prepare.outputs.release_version }}
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
@@ -79,11 +126,13 @@ jobs:
 
   release:
     name: Release
-    needs: build
-    if: inputs.create_release == true
+    needs: [prepare, build]
+    if: needs.prepare.outputs.create_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.release_version }}
 
     steps:
       - name: Checkout
@@ -110,12 +159,12 @@ jobs:
             echo
             for spec in "feat **Features**" "fix **Bug Fixes**" "docs **Documentation**" "ci **CI & Workflows**" "test **Tests**" "refactor **Refactoring**" "perf **Performance**" "chore **Chores**"; do
               type="${spec%% *}"
-              grep -E "^${type}(\\([^)]*\\))?: " "$TMP/all" > "$TMP/items" || continue
+              grep -E "^${type}(\([^)]*\))?: " "$TMP/all" > "$TMP/items" || continue
               echo "${spec#* }"
-              sed -E "s/^${type}(\\([^)]*\\))?: +/  - /" "$TMP/items"
+              sed -E "s/^${type}(\([^)]*\))?: +/  - /" "$TMP/items"
               echo
             done
-            grep -Ev "^[a-z]+(\\([^)]*\\))?: " "$TMP/all" > "$TMP/other" || true
+            grep -Ev "^[a-z]+(\([^)]*\))?: " "$TMP/all" > "$TMP/other" || true
             if [ -s "$TMP/other" ]; then
               echo "**Other**"
               sed 's/^/  - /' "$TMP/other"
@@ -142,8 +191,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ inputs.release_version }}
-          name: v${{ inputs.release_version }}
+          tag_name: v${{ needs.prepare.outputs.release_version }}
+          name: v${{ needs.prepare.outputs.release_version }}
           body_path: ${{ steps.notes.outputs.notes }}
           draft: false
           prerelease: false
