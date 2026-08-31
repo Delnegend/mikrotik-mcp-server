@@ -21,10 +21,15 @@ on:
 env:
   BINARY_NAME: mikrotik-mcp
 
+permissions:
+  contents: read
+
 jobs:
   prepare:
     name: Prepare
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
@@ -87,6 +92,8 @@ jobs:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     needs: prepare
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:

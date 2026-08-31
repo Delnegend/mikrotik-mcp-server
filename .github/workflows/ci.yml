@@ -16,6 +16,8 @@ jobs:
   check:
     name: Check (just check)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -29,6 +31,8 @@ jobs:
   build:
     name: Build (${{ matrix.platform }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +67,8 @@ jobs:
   chr:
     name: CHR (integration)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 30
     env:
       CHR_VERSION: 7.23.3
