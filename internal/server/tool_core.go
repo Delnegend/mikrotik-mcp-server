@@ -999,8 +999,7 @@ func probePasswordless(cl *client.RouterOSClient, scpResult map[string]any) map[
 }
 
 func classifyAPIError(err error) string {
-	var rosErr *client.RouterOSError
-	if errors.As(err, &rosErr) {
+	if rosErr, ok := errors.AsType[*client.RouterOSError](err); ok {
 		if strings.Contains(rosErr.Message, "user name or password") || strings.Contains(rosErr.Message, "login") {
 			return "api.auth_failed"
 		}
