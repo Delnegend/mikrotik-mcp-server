@@ -1,12 +1,12 @@
 {
-	"name": "mikrotik-mcp",
+	"name": "mikrotik",
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
-	"remoteUser": "mikrotik-mcp",
+	"remoteUser": "mikrotik",
 	"runArgs": [
 		"--hostname",
-		"mikrotik-mcp-devcontainer",
+		"mikrotik",
 		"--privileged"
 	],
 	"forwardPorts": [

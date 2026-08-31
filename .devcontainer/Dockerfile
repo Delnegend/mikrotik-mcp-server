@@ -9,7 +9,7 @@ ENV LC_ALL=C.UTF-8
 RUN --mount=type=cache,target=/var/cache/apt \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git sudo \
-    qemu-system-x86 qemu-utils unzip netcat-openbsd just && \
+    qemu-system-x86 qemu-utils unzip netcat-openbsd just openssh-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Go toolchain from the official tarball (pinned to go.mod's version).
