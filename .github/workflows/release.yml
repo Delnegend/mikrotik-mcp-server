@@ -74,6 +74,8 @@ jobs:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
         exclude:
+          - goos: linux
+            goarch: arm64
           - goos: darwin
             goarch: amd64
           - goos: windows
