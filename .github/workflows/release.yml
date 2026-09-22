@@ -1,136 +1,77 @@
 name: Release
 
 on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly: Sunday 00:00 UTC
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: Release version (e.g. 0.1.0) - leave empty for auto patch bump
-        required: false
-        type: string
-        default: ""
-      create_release:
-        description: Push to GitHub Releases
-        required: true
-        type: boolean
-        default: false
-  pull_request:
-    types: [closed]
-    branches:
-      - main
 
-env:
-  BINARY_NAME: mikrotik-mcp
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  prepare:
-    name: Prepare
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.merged == true &&
-       contains(github.event.pull_request.labels.*.name, 'dependencies'))
+  version:
+    name: Next version (Conventional Commits)
+    runs-on: ubuntu-slim
     outputs:
-      release_version: ${{ steps.version.outputs.version }}
-      create_release: ${{ steps.version.outputs.create_release }}
+      bump: ${{ steps.semver.outputs.bump }}
+      next: ${{ steps.semver.outputs.next }}
+      nextStrict: ${{ steps.semver.outputs.nextStrict }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v7
 
-      - name: Determine version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ -n "${{ inputs.release_version }}" ]; then
-              echo "version=${{ inputs.release_version }}" >> "$GITHUB_OUTPUT"
-              echo "create_release=${{ inputs.create_release }}" >> "$GITHUB_OUTPUT"
-            else
-              # Auto patch bump when dispatched without explicit version (from dependabot-auto-merge)
-              LATEST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0.0')"
-              PLAIN_VERSION="${LATEST_TAG#v}"
-              IFS='.' read -r major minor patch <<< "$PLAIN_VERSION"
-              major="${major:-0}"
-              minor="${minor:-1}"
-              patch="${patch:-0}"
-              if [ "$LATEST_TAG" = "v0.0.0" ]; then
-                NEXT_VERSION="0.1.0"
-              else
-                NEXT_PATCH=$((patch + 1))
-                NEXT_VERSION="${major}.${minor}.${NEXT_PATCH}"
-              fi
-              echo "Latest tag: $LATEST_TAG, computed next patch version: $NEXT_VERSION"
-              echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
-              echo "create_release=${{ inputs.create_release }}" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            # Calculate next patch version from latest tag (v0.0.0 -> v0.1.0 -> v0.1.1 ...) for pull_request auto-release
-            LATEST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'v0.0.0')"
-            PLAIN_VERSION="${LATEST_TAG#v}"
-            IFS='.' read -r major minor patch <<< "$PLAIN_VERSION"
-            major="${major:-0}"
-            minor="${minor:-1}"
-            patch="${patch:-0}"
-            if [ "$LATEST_TAG" = "v0.0.0" ]; then
-              NEXT_VERSION="0.1.0"
-            else
-              NEXT_PATCH=$((patch + 1))
-              NEXT_VERSION="${major}.${minor}.${NEXT_PATCH}"
-            fi
-            echo "Latest tag: $LATEST_TAG, computed next patch version: $NEXT_VERSION"
-            echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
-            echo "create_release=true" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Determine next version
+        id: semver
+        uses: ietf-tools/semver-action@v1
+        with:
+          token: ${{ github.token }}
+          fallbackTag: v0.0.0
+          noNewCommitBehavior: silent
+          noVersionBumpBehavior: patch
 
   build:
-    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    needs: prepare
+    name: Build (${{ matrix.platform }})
+    needs: version
+    if: needs.version.outputs.bump != 'none'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     strategy:
       fail-fast: false
       matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-        exclude:
+        include:
           - goos: linux
-            goarch: arm64
-          - goos: darwin
             goarch: amd64
-          - goos: windows
+            platform: linux/amd64
+          - goos: darwin
             goarch: arm64
+            platform: darwin/arm64
+          - goos: windows
+            goarch: amd64
+            platform: windows/amd64
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Build
+      - name: Build binaries
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-          VERSION: ${{ needs.prepare.outputs.release_version }}
+          VERSION: ${{ needs.version.outputs.nextStrict }}
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           go build -ldflags="-X main.version=$VERSION" -o "mikrotik-mcp${ext}" .
           go build -ldflags="-X main.version=$VERSION" -o "rosbackup${ext}" ./cmd/rosbackup
 
-      - name: Compress binaries
+      - name: Package archive
         run: |
-          base="${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          base="mikrotik-mcp-${{ matrix.goos }}-${{ matrix.goarch }}"
           ext=""
           if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
           mkdir -p "$base"
@@ -144,85 +85,29 @@ jobs:
             tar -cJf "${base}.tar.xz" "$base"
           fi
           rm -rf "$base"
-          ls -lh "${base}."*
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}*
+          name: mikrotik-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: mikrotik-mcp-${{ matrix.goos }}-${{ matrix.goarch }}.*
 
   release:
-    name: Release
-    needs: [prepare, build]
-    if: needs.prepare.outputs.create_release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      VERSION: ${{ needs.prepare.outputs.release_version }}
-
+    name: Publish Consolidated Release
+    needs: [version, build]
+    if: needs.version.outputs.bump != 'none'
+    runs-on: ubuntu-slim
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Generate release notes from commits since the last tag
-        id: notes
-        run: |
-          PREV="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-          if [ -n "$PREV" ]; then
-            RANGE="$PREV..HEAD"
-            COMPARE="https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...v${VERSION}"
-          else
-            RANGE="$(git rev-list --max-parents=0 HEAD | tail -1)..HEAD"
-            COMPARE=""
-          fi
-          echo "Generating notes for range $RANGE"
-          TMP="$(mktemp -d)"
-          git log --pretty=format:"%s" "$RANGE" > "$TMP/all"
-          {
-            echo "## What's Changed"
-            echo
-            for spec in "feat **Features**" "fix **Bug Fixes**" "docs **Documentation**" "ci **CI & Workflows**" "test **Tests**" "refactor **Refactoring**" "perf **Performance**" "chore **Chores**"; do
-              type="${spec%% *}"
-              grep -E "^${type}(\([^)]*\))?: " "$TMP/all" > "$TMP/items" || continue
-              echo "${spec#* }"
-              sed -E "s/^${type}(\([^)]*\))?: +/  - /" "$TMP/items"
-              echo
-            done
-            grep -Ev "^[a-z]+(\([^)]*\))?: " "$TMP/all" > "$TMP/other" || true
-            if [ -s "$TMP/other" ]; then
-              echo "**Other**"
-              sed 's/^/  - /' "$TMP/other"
-              echo
-            fi
-            echo "**Downloads**"
-            echo "- **Windows**: \`.7z\` (extract with 7-Zip)"
-            echo "- **Linux / macOS**: \`.tar.xz\` (extract with \`tar -xJf\`)"
-            echo "- Each archive contains \`mikrotik-mcp\` and \`rosbackup\`"
-            if [ -n "$COMPARE" ]; then
-              echo
-              echo "**Full Changelog**: $COMPARE"
-            fi
-          } > notes.md
-          echo "=== draft release notes ==="
-          cat notes.md
-          echo "notes=$PWD/notes.md" >> "$GITHUB_OUTPUT"
-
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
           path: artifacts
+          merge-multiple: true
 
-      - name: Create Release
+      - name: Publish Consolidated Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ needs.prepare.outputs.release_version }}
-          name: v${{ needs.prepare.outputs.release_version }}
-          body_path: ${{ steps.notes.outputs.notes }}
-          draft: false
-          prerelease: false
+          tag_name: ${{ needs.version.outputs.next }}
+          generate_release_notes: true
           files: |
-            artifacts/**/*
+            artifacts/*

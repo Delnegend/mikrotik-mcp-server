@@ -3,8 +3,7 @@ updates:
   - package-ecosystem: gomod
     directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
       time: "02:00"
     labels:
       - dependencies
@@ -12,10 +11,47 @@ updates:
       - Delnegend
     commit-message:
       prefix: "chore(deps)"
-    groups:
-      all-dependencies:
-        patterns:
-          - "*"
+    # Supply chain security: quarantine newly published versions for 14 days
     cooldown:
       default-days: 14
-    open-pull-requests-limit: 1
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: daily
+      time: "02:00"
+    labels:
+      - dependencies
+    assignees:
+      - Delnegend
+    commit-message:
+      prefix: "chore(deps)"
+    # Supply chain security: quarantine newly published versions for 14 days
+    cooldown:
+      default-days: 14
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+    open-pull-requests-limit: 2
