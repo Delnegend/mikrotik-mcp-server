@@ -362,7 +362,9 @@ func sshConfig(dev inventory.Device) (*ssh.ClientConfig, error) {
 	if dev.SSHFingerprintSHA256 != "" {
 		cfg.HostKeyCallback = fingerprintPolicy(dev.Host, dev.SSHFingerprintSHA256)
 	} else if helpers.ParseBool(os.Getenv("MIKROTIK_SCP_INSECURE"), false) {
-		cfg.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+		// Explicit opt-out only: the fingerprint path above and the error below
+		// both keep host key verification on.
+		cfg.HostKeyCallback = ssh.InsecureIgnoreHostKey() // nosemgrep
 	} else {
 		return nil, errors.New("safe mode requires SSH host key verification: set MIKROTIK_SCP_HOST_FINGERPRINT_SHA256 or MIKROTIK_SCP_INSECURE=1")
 	}

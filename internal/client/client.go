@@ -316,7 +316,10 @@ func (c *RouterOSClient) Connect() error {
 
 	if c.useSSL {
 		tlsConfig := &tls.Config{
-			ServerName:         c.host,
+			ServerName: c.host,
+			// RouterOS speaks TLS 1.2 and newer. A floor stops a downgrade to
+			// the older protocols that have no place in a management channel.
+			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: !c.tlsVerify,
 		}
 		if c.tlsVerify && len(c.tlsCAFiles) > 0 {

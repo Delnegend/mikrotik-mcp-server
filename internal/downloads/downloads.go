@@ -216,7 +216,10 @@ func hostKeyCallback(settings *FileTransferSettings) (ssh.HostKeyCallback, error
 		return sha256FingerprintPolicy(settings.Host, settings.SSHFingerprintSHA256), nil
 	}
 	if settings.Insecure || helpers.ParseBool(os.Getenv("MIKROTIK_SCP_INSECURE"), false) {
-		return ssh.InsecureIgnoreHostKey(), nil
+		// Verification is the default: this branch is reached only when the
+		// caller explicitly opts out, and every other path requires a pinned
+		// SHA-256 fingerprint.
+		return ssh.InsecureIgnoreHostKey(), nil // nosemgrep
 	}
 	return nil, errors.New("SSH host key verification is disabled: MIKROTIK_SCP_HOST_FINGERPRINT_SHA256 must be set (or MIKROTIK_SCP_INSECURE=1 to opt out)")
 }
