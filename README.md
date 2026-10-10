@@ -4,6 +4,8 @@
 
 **Let AI assistants manage MikroTik routers over the native RouterOS API — one static binary, any MCP client.**
 
+A Go port of [parkerkane/mikrotik-manager](https://github.com/parkerkane/mikrotik-manager).
+
 [![CI](https://img.shields.io/github/actions/workflow/status/Delnegend/mikrotik-mcp-server/ci.yml?branch=main&style=flat-square)](https://github.com/Delnegend/mikrotik-mcp-server/actions) [![Release](https://img.shields.io/github/v/release/Delnegend/mikrotik-mcp-server?style=flat-square)](https://github.com/Delnegend/mikrotik-mcp-server/releases) [![License](https://img.shields.io/github/license/Delnegend/mikrotik-mcp-server?style=flat-square)](LICENSE)
 
 </div>
