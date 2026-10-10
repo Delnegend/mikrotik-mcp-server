@@ -69,7 +69,7 @@ Component boundaries and guarantees: **[Architecture](docs/architecture.md)**. A
 - **[Configuration](docs/configuration.md)** — environment variables and fleet inventory.
 - **[Architecture](docs/architecture.md)** — components, safe mode, guarantees.
 - **[Tool Reference](docs/tool-reference.md)** — every MCP tool by area.
-- **[Backup & restore guide](docs/BACKUP-RESTORE.md)** — full disaster-recovery walkthrough.
+- **[Backup & restore guide](docs/backup-restore.md)** — full disaster-recovery walkthrough.
 - **[Development](docs/development.md)** — build, test, and CHR suite.
 
 ## License
