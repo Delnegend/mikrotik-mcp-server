@@ -58,3 +58,7 @@ backup:
 # Restore a .backup/.rsc config onto the router (takes a pre-restore backup first)
 restore file:
     go run ./cmd/rosbackup restore -file {{file}}
+
+# Bump the release version (manifest-less: versions live in git tags)
+bump version:
+    @echo "versions are tracked by git tags; nothing to bump"

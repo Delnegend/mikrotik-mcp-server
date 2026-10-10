@@ -110,16 +110,23 @@ Notes:
 
 GitHub-hosted `ubuntu-latest` runners expose `/dev/kvm` (hardware-accelerated
 virtualization), so the CHR VM boots with KVM in CI; when KVM is absent it
-falls back to TCG software emulation (slower but correct). Both workflows
-install the qemu toolchain and run `bash scripts/chr/test.sh --down`, and both
-cache the Go module/build caches (via `actions/setup-go`) plus the downloaded
+falls back to TCG software emulation (slower but correct). The CHR workflow
+installs the qemu toolchain and runs `bash scripts/chr/test.sh --down`, and
+caches the Go module/build caches (via `actions/setup-go`) plus the downloaded
 CHR disk image (keyed on `CHR_VERSION`, default `7.23.3`):
 
-- **`.github/workflows/integration.yml`** — runs the full suite against a live
-  CHR on every push to `master` and every pull request.
-- **`.github/workflows/weekly-update.yml`** — Monday 02:00 UTC: bumps
-  dependencies, then runs the full CHR suite. A failing suite blocks the
-  dependency PR from opening.
+- **`.github/workflows/ci.yml`** — `just check` (go fix + go fmt + go vet +
+  `go test ./...`) on every push to `main` and every pull request.
+- **`.github/workflows/chr-integration.yml`** — the full suite against a live
+  CHR. It is `workflow_dispatch`-only: it never runs on push or pull request,
+  so trigger it by hand when you want the CHR suite.
+- **`.github/workflows/auto-merge.yml`** — enables auto-merge with
+  `gh pr merge --auto --rebase` on any PR carrying the `dependencies` label; it
+  no longer reads `dependabot/fetch-metadata`.
+- **`.github/dependabot.yml`** — opens PRs for `github-actions` only, weekly on
+  Monday at 02:00. Go has no native 14-day cooldown gate, so there is **no**
+  dependency-upgrade workflow for Go modules; upgrade them by hand
+  (`go get -u ./...`).
 
 ## Official references
 
@@ -155,7 +162,16 @@ outweighs it, `internal/client` is the single seam to swap out.
 
 ## Releases
 
-Releases are cut automatically: a scheduled workflow updates dependencies
-every Monday (`go get -u ./...`) and opens a PR for review; a separate
-workflow builds the platform archives and publishes them to GitHub Releases
-when triggered manually.
+Releases are cut by `.github/workflows/release.yml`, which has three
+`workflow_dispatch` targets:
+
+- **`new-tag`** (default) — CI gate (`just check`) → `just bump` → atomic
+  commit + tag push → build → publish the release.
+- **`tag`** — rebuild an existing tag and publish it.
+- **`commit`** — test-build a commit and upload Actions artifacts only; it
+  never publishes a release.
+
+The workflow also runs on a weekly cron (`0 0 * * 0`, Sunday 00:00 UTC) using
+the default `new-tag` target, so unattended maintenance releases happen every
+Sunday. Go dependencies are not bumped by any workflow — Go has no native
+14-day cooldown gate, so upgrade them by hand (`go get -u ./...`).
