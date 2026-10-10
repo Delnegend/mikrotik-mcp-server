@@ -32,4 +32,4 @@ flowchart TD
 - **Cancellable long runs:** `resource_listen`, `tool_ping`, `tool_traceroute` are interrupted on cancel.
 - **Safe mode reverts:** uncommitted changes vanish on rollback or disconnect.
 
-Deep contributor internals live in [Development](DEVELOPMENT.md).
+Deep contributor internals live in [Development](development.md).

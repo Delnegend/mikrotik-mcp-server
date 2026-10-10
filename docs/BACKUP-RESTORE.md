@@ -31,18 +31,27 @@ re-apply a reviewed configuration.
 
 ## Backing up
 
-```sh
-# Minimal: binary backup to ./backups, using MIKROTIK_* env vars for settings
-MIKROTIK_PASSWORD="secret" \
-MIKROTIK_SCP_HOST_FINGERPRINT_SHA256="SHA256:AbC…" \
-rosbackup backup -host 192.168.88.1 -dir ./backups
+`backup` runs `/system/backup/save` (full binary config, secrets included)
+into `backups/<host>-<timestamp>.backup`, waits for the file, downloads it
+over SFTP to `-dir` (default `.`), then removes the router copy unless
+`-keep-remote`.
 
-# Full: binary + portable export, everything explicit
-rosbackup backup \
-  -host 192.168.88.1 -user admin -password secret \
-  -ssh-port 22 \
-  -fingerprint "SHA256:AbC…" \
-  -dir ./backups -export
+| Flag | Default | Description |
+|---|---|---|
+| `-dir` | `.` | Local output directory |
+| `-name` | `backups/<host>-<timestamp>` | Backup base name |
+| `-export` | `false` | Also fetch a portable `.rsc` text export (`/export`) |
+| `-sensitive` | `false` | Include secrets in the export (`show-sensitive`) |
+| `-keep-remote` | `false` | Keep router copies after download |
+Shared connection flags: `-host`, `-api-port` (`8728`), `-api-ssl`,
+`-ssh-port` (`22`), `-user` (`admin`), `-password`, `-key`, `-fingerprint`,
+`-insecure`, `-timeout` (`30s`). Full worked example below.
+
+```sh
+ # Minimal: binary backup to ./backups, using MIKROTIK_* env vars for settings
+ MIKROTIK_PASSWORD="secret" \
+ MIKROTIK_SCP_HOST_FINGERPRINT_SHA256="SHA256:AbC…" \
+ rosbackup backup -host 192.168.88.1 -dir ./backups
 
 # Keep the copies on the router after download (e.g. for offsite pulls)
 rosbackup backup -host 192.168.88.1 -fingerprint "SHA256:…" -keep-remote
@@ -84,6 +93,17 @@ Any scheduler works since the tool is a plain CLI. Example cron (nightly at
 > **A binary restore replaces the entire running configuration.** Plan
 > accordingly: you will lose the management session, and any uncommitted
 > state on the router is gone.
+
+`restore` uploads a `.backup` (applied via `/system/backup/load`) or `.rsc`
+(applied via `/import`), after keeping a timestamped pre-restore backup beside
+`-file` unless `-no-preserve`. The API session drops after a binary restore —
+reconnect and verify.
+
+| Flag | Default | Description |
+|---|---|---|
+| `-file` | — | Local `.backup` or `.rsc` file (required) |
+| `-no-preserve` | `false` | Skip the automatic pre-restore backup |
+| `-backup-password` | — | Password of the binary backup (must match save time) |
 
 ```sh
 # Exact restore of a binary backup
@@ -199,5 +219,5 @@ administrative use; the MCP tools are for interactive sessions.
 
 ## Further reading
 
-- [Development docs](DEVELOPMENT.md) — test setup, the CHR test router, CI.
+- [Development docs](development.md) — test setup, the CHR test router, CI.
 - [README](../README.md) — general project overview and MCP tools.
