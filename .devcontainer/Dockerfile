@@ -20,9 +20,9 @@ RUN curl -fsSL -o /tmp/go.tgz \
 
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-RUN groupadd -g 1000 mikrotik && \
-    useradd -m -u 1000 -g mikrotik mikrotik && \
-    echo "mikrotik ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/mikrotik && \
-    chmod 0440 /etc/sudoers.d/mikrotik
+RUN groupadd -g 1000 dev && \
+    useradd -m -u 1000 -g dev dev && \
+    echo "dev ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/dev && \
+    chmod 0440 /etc/sudoers.d/dev
 
-USER mikrotik
+USER dev

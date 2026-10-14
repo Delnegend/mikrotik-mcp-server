@@ -3,7 +3,7 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
-	"remoteUser": "mikrotik",
+	"remoteUser": "dev",
 	"runArgs": [
 		"--hostname",
 		"mikrotik",
