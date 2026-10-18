@@ -68,7 +68,7 @@ jobs:
 
       - name: Bump, tag, and push
         id: resolve
-        uses: Delnegend/actions/resolve-release@e5a0d7c3af36381065080b6272d91fde28d17414 # v1
+        uses: Delnegend/actions/resolve-release@3914bdd59116118eb4a7bad3cb2c4a04ab380b64 # v1
         with:
           ref: ${{ inputs.ref }}
           dry-run: ${{ inputs.dry-run }}
@@ -92,6 +92,9 @@ jobs:
           - goos: linux
             goarch: amd64
             platform: linux/amd64
+          - goos: linux
+            goarch: arm64
+            platform: linux/arm64
           - goos: darwin
             goarch: arm64
             platform: darwin/arm64
@@ -122,33 +125,21 @@ jobs:
           go build -ldflags="-X main.version=$VERSION" -o "mikrotik-mcp${ext}" .
           go build -ldflags="-X main.version=$VERSION" -o "rosbackup${ext}" ./cmd/rosbackup
 
-      - name: Package archive
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          set -euo pipefail
-          base="mikrotik-mcp-${GOOS}-${GOARCH}"
-          ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          mkdir -p "$base"
-          mv "mikrotik-mcp${ext}" "rosbackup${ext}" "$base"/
-          if [ "$GOOS" = "windows" ]; then
-            if ! command -v 7z >/dev/null 2>&1; then
-              sudo apt-get update -qq && sudo apt-get install -y -qq p7zip-full
-            fi
-            7z a -t7z "${base}.7z" "$base" >/dev/null
-          else
-            tar -cJf "${base}.tar.xz" "$base"
-          fi
-          rm -rf "$base"
-
-      - name: Upload platform archive
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      # Names the archive `<name>-<version>-<target>.<ext>` and uploads it
+      # under that same name, so the run, the release and a formula all agree.
+      # Format, effort, layout and the `.exe` suffix are all the action's
+      # decision from `target`, so this file names no per-platform strings.
+      # Both binaries ship in one archive: the build step above already
+      # produced the `.exe` spellings on Windows, which is what the action
+      # looks for first.
+      - name: Package artifact
+        uses: Delnegend/actions/package-artifact@3914bdd59116118eb4a7bad3cb2c4a04ab380b64 # v1
         with:
-          name: mikrotik-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: mikrotik-mcp-${{ matrix.goos }}-${{ matrix.goarch }}.*
-          if-no-files-found: error
+          name: mikrotik-mcp
+          version: ${{ needs.prepare.outputs.version }}
+          target: ${{ matrix.goos }}-${{ matrix.goarch }}
+          source: mikrotik-mcp
+          extra: rosbackup
 
   release:
     name: Publish Consolidated Release
