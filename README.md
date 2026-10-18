@@ -16,7 +16,7 @@ A Go port of [parkerkane/mikrotik-manager](https://github.com/parkerkane/mikroti
 
 ```bash
 # 1. Install
-go install github.com/Delnegend/mikrotik-mcp@latest
+brew install Delnegend/tap/mikrotik-mcp
 
 # 2. Register it with your MCP client (opencode shown; 3 more in docs)
 # opencode.json -> "mcp": { "mikrotik": {

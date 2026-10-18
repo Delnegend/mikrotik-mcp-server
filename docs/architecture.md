@@ -33,3 +33,32 @@ flowchart TD
 - **Safe mode reverts:** uncommitted changes vanish on rollback or disconnect.
 
 Deep contributor internals live in [Development](development.md).
+
+## Protocol Conformance
+
+The client is implemented and tested against MikroTik's official artifacts:
+
+- **API protocol** — [RouterOS API](https://manual.mikrotik.com/docs/developer-guides/api/)
+  documents framing, word-length encoding, sentences, queries, `.tag`, and
+  `/login` + `/cancel` semantics, with exact example reply traces.
+- **Reference client** — [Python3 example](https://manual.mikrotik.com/docs/developer-guides/api/python3-example)
+  is MikroTik's own wire-protocol implementation. Our encoder matches it
+  byte-for-byte for every length class (`TestEncodeSentenceMatchesOfficialReference`).
+- **REST API** (RouterOS 7) — a cross-reference for command paths and
+  attribute names; the server speaks the native binary protocol.
+
+There is **no official Go SDK or conformance suite**. `github.com/mikrotik`
+is **not** an official MikroTik org (unrelated third-party repos).
+
+## Why Not `go-routeros/routeros/v3`?
+
+[go-routeros/routeros/v3](https://github.com/go-routeros/routeros) (MIT,
+~270★) is the de-facto standard Go RouterOS library, and `internal/client`'s
+low-level protocol core overlaps its `proto` package. We keep our own client
+because it layers semantics the library doesn't ship: bounded auto-cancel
+`listen`, `RunContext`/`ListenContext` that issue `/cancel` on request
+cancellation, `Clone`/`Isolated` per-command connections,
+certificate-fingerprint healthcheck data, and the RouterOS error taxonomy.
+The protocol layer is verified byte-for-byte against the official spec, and
+the library has had no release since Feb 2025. If that maintenance risk ever
+outweighs it, `internal/client` is the single seam to swap out.

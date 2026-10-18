@@ -3,34 +3,16 @@
 Developer documentation for the MikroTik MCP server. For installation and
 end-user usage, see the [README](../README.md).
 
-## Layout
+## Prerequisites
 
-```
-.devcontainer/           reproducible dev environment (Go, just, qemu; KVM passthrough)
-cmd/chrprovision/        optional CHR hardening tool (set password, enable services)
-internal/client/         RouterOS binary-protocol client (wire encoding, listen/cancel, TLS)
-internal/downloads/      SSH/SFTP for file download + passwordless password rotation
-internal/formatting/     markdown result rendering
-internal/helpers/        shared helpers (paths, env, JSON)
-internal/inventory/      multi-device fleet registry (JSON inventory, validation)
-internal/runtime/        startup/env configuration
-internal/safemode/       RouterOS safe-mode console sessions (Ctrl+X, commit/rollback)
-internal/server/         MCP tool handlers
-internal/integration/    env-gated tests against a live RouterOS VM
-scripts/chr/             CHR (Cloud Hosted Router) QEMU workflow
-```
+- Go 1.27+ (pinned in `go.mod`), `just`
+- Docker + KVM for the CHR integration suite; without them, `go test ./...`
+  is the full offline suite
 
 ## Development with the devcontainer
 
 The repository ships a reproducible dev environment in `.devcontainer/`
-(Dockerfile + devcontainer.json + postinstall.sh). The image preinstalls the
-Go toolchain (pinned to go.mod), `just`, qemu-system-x86/qemu-utils, unzip,
-netcat, and creates a `delnegend` user (uid 1000) with passwordless sudo. The
-container runs `--privileged` so the host's `/dev/kvm` is passed through; on
-first create, `postinstall.sh` makes it world-accessible (host group ids
-differ) and runs `just check` to verify the toolchain.
-
-Open the repo in VSCode and "Reopen in Container", or run the image directly:
+(Go pinned to go.mod, `just`, qemu, `--privileged` for host `/dev/kvm`):
 
 ```bash
 docker build -t mikrotik-mcp-dev .devcontainer
@@ -86,14 +68,6 @@ just test-clean    # wipe state, test, then stop the VM
 just down          # stop (state kept)
 just fresh         # wipe state and boot clean
 ```
-
-Equivalent one-liners (what the `just` recipes call):
-
-```bash
-bash scripts/chr/up.sh
-go run ./cmd/chrprovision -password admin
-MIKROTIK_TEST_HOST=127.0.0.1 MIKROTIK_TEST_USER=admin MIKROTIK_TEST_PASSWORD=admin go test ./internal/integration/ -v
-```
 Notes:
 
 - **WinBox**: connect by IP to `127.0.0.1` (port `8291`). Neighbor *discovery*
@@ -106,59 +80,14 @@ Notes:
 - The opt-in `MIKROTIK_TEST_PASSWORDLESS=1` runs a real SSH password
   rotation test (uploads a throwaway key, rotates, restores the password).
 
-## CI: the CHR in GitHub Actions
+## CI
 
-GitHub-hosted `ubuntu-latest` runners expose `/dev/kvm` (hardware-accelerated
-virtualization), so the CHR VM boots with KVM in CI; when KVM is absent it
-falls back to TCG software emulation (slower but correct). The CHR workflow
-installs the qemu toolchain and runs `bash scripts/chr/test.sh --down`, and
-caches the Go module/build caches (via `actions/setup-go`) plus the downloaded
-CHR disk image (keyed on `CHR_VERSION`, default `7.23.3`):
-
-- **`.github/workflows/ci.yml`** — `just check` (go fix + go fmt + go vet +
-  `go test ./...`) on every push to `main` and every pull request.
-- **`.github/workflows/chr-integration.yml`** — the full suite against a live
-  CHR. It is `workflow_dispatch`-only: it never runs on push or pull request,
-  so trigger it by hand when you want the CHR suite.
-- **`.github/workflows/auto-merge.yml`** — enables auto-merge with
-  `gh pr merge --auto --rebase` on any PR carrying the `dependencies` label; it
-  no longer reads `dependabot/fetch-metadata`.
-- **`.github/dependabot.yml`** — opens PRs for `github-actions` only, weekly on
-  Monday at 02:00. Go has no native 14-day cooldown gate, so there is **no**
-  dependency-upgrade workflow for Go modules; upgrade them by hand
-  (`go get -u ./...`).
-
-## Official references
-
-- **Backup & restore** — see [backup-restore.md](backup-restore.md) for the
-  `rosbackup` CLI guide (scheduling, disaster recovery, encrypted backups).
-
-The client is implemented and tested against MikroTik's official artifacts:
-
-- **API protocol** — [RouterOS API](https://manual.mikrotik.com/docs/developer-guides/api/)
-  documents framing, word-length encoding, sentences, queries, `.tag`, and
-  `/login` + `/cancel` semantics, with exact example reply traces.
-- **Reference client** — [Python3 example](https://manual.mikrotik.com/docs/developer-guides/api/python3-example)
-  is MikroTik's own wire-protocol implementation. Our encoder matches it
-  byte-for-byte for every length class (`TestEncodeSentenceMatchesOfficialReference`).
-- **REST API** (RouterOS 7) — a cross-reference for command paths and
-  attribute names; the server speaks the native binary protocol.
-
-There is **no official Go SDK or conformance suite**. `github.com/mikrotik`
-is **not** an official MikroTik org (unrelated third-party repos).
-
-## Why not `go-routeros/routeros/v3`?
-
-[go-routeros/routeros/v3](https://github.com/go-routeros/routeros) (MIT,
-~270★) is the de-facto standard Go RouterOS library, and `internal/client`'s
-low-level protocol core overlaps its `proto` package. We keep our own client
-because it layers semantics the library doesn't ship: bounded auto-cancel
-`listen`, `RunContext`/`ListenContext` that issue `/cancel` on request
-cancellation, `Clone`/`Isolated` per-command connections,
-certificate-fingerprint healthcheck data, and the RouterOS error taxonomy.
-The protocol layer is verified byte-for-byte against the official spec, and
-the library has had no release since Feb 2025. If that maintenance risk ever
-outweighs it, `internal/client` is the single seam to swap out.
+- **`ci.yml`** — `just check` plus `go test ./...` on every push and PR.
+- **`chr-integration.yml`** — the live-CHR suite, `workflow_dispatch`-only.
+- **`auto-merge.yml`** — auto-merges PRs labelled `dependencies`.
+- **Dependabot** opens `github-actions` PRs weekly. Go has no native 14-day
+  cooldown gate, so there is **no** dependency-upgrade workflow for Go
+  modules; upgrade them by hand (`go get -u ./...`).
 
 ## Releases
 
@@ -169,5 +98,4 @@ commit SHA test-builds without publishing ([dispatch modes](https://github.com/D
 There is no manifest to bump: the version lives in git tags, so a ship tags
 HEAD directly. The workflow also runs on a weekly cron (`0 0 * * 0`, Sunday
 00:00 UTC) with an empty `ref`, so unattended maintenance releases happen
-every Sunday. Go dependencies are not bumped by any workflow — Go has no native
-14-day cooldown gate, so upgrade them by hand (`go get -u ./...`).
+every Sunday.
