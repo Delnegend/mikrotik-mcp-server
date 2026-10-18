@@ -163,15 +163,11 @@ outweighs it, `internal/client` is the single seam to swap out.
 ## Releases
 
 Releases are cut by `.github/workflows/release.yml`, which takes an optional
-`ref` input:
+`ref` input: empty ships the release, a version tag rebuilds one, and a
+commit SHA test-builds without publishing ([dispatch modes](https://github.com/Delnegend/actions/blob/main/README.md)).
 
-- **empty** (default) — CI gate (`just check`) → tag HEAD → build → publish
-  the release. There is no manifest to bump: the version lives in git tags.
-- **a version tag** — rebuild an existing tag and publish it.
-- **a commit SHA** — test-build a commit and upload Actions artifacts only; it
-  never publishes a release.
-
-The workflow also runs on a weekly cron (`0 0 * * 0`, Sunday 00:00 UTC) with
-an empty `ref`, so unattended maintenance releases happen every
-Sunday. Go dependencies are not bumped by any workflow — Go has no native
+There is no manifest to bump: the version lives in git tags, so a ship tags
+HEAD directly. The workflow also runs on a weekly cron (`0 0 * * 0`, Sunday
+00:00 UTC) with an empty `ref`, so unattended maintenance releases happen
+every Sunday. Go dependencies are not bumped by any workflow — Go has no native
 14-day cooldown gate, so upgrade them by hand (`go get -u ./...`).
