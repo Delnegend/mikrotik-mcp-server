@@ -45,7 +45,7 @@ jobs:
         run: docker run --rm -v "${GITHUB_WORKSPACE}:/path" ghcr.io/gitleaks/gitleaks:latest detect --source=/path --verbose
 
   scan:
-    name: Scans (actionlint, semgrep, trivy, osv)
+    name: Scan
     uses: Delnegend/actions/.github/workflows/scan.yml@d1eac240aa236c277753744453ddf0d0f1ecb5c3 # v1
     permissions:
       contents: read
