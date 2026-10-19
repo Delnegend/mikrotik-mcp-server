@@ -59,6 +59,28 @@ backup:
 restore file:
     go run ./cmd/rosbackup restore -file {{file}}
 
-# Bump the release version (manifest-less: versions live in git tags)
+# Bump the release version in VERSION.
 bump version:
-    @echo "versions are tracked by git tags; nothing to bump"
+    @just version bump "{{version}}"
+
+# Language-agnostic version contract for Delnegend/actions/resolve-release.
+version action ver="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{action}}" in
+      get)
+        cat VERSION
+        ;;
+      bump)
+        [ -n "{{ver}}" ] || { echo "usage: just version bump X.Y.Z" >&2; exit 1; }
+        NEW="{{ver}}"
+        OLD="$(cat VERSION 2>/dev/null || true)"
+        if [ "$NEW" = "$OLD" ]; then
+          echo "error: bump $NEW is a no-op (VERSION unchanged)" >&2
+          exit 1
+        fi
+        printf '%s\n' "$NEW" > VERSION
+        git diff -- VERSION
+        ;;
+      *) echo "usage: just version get|bump X.Y.Z" >&2; exit 1 ;;
+    esac
