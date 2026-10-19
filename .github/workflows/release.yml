@@ -56,7 +56,7 @@ jobs:
 
       - name: Bump, tag, and push
         id: resolve
-        uses: Delnegend/actions/resolve-release@0e55ed74d7039e8f1f5b23607345eefaef65d8b4 # v1
+        uses: Delnegend/actions/resolve-release@fd9a429325e7c9103399f01855023e6b394457a2 # v1
         with:
           ref: ${{ inputs.ref }}
           dry-run: ${{ inputs.dry-run }}
@@ -112,7 +112,7 @@ jobs:
       # Both binaries ship in one archive; the build already produced the
       # `.exe` spellings the action looks for first.
       - name: Package artifact
-        uses: Delnegend/actions/package-artifact@0e55ed74d7039e8f1f5b23607345eefaef65d8b4 # v1
+        uses: Delnegend/actions/package-artifact@fd9a429325e7c9103399f01855023e6b394457a2 # v1
         with:
           name: mikrotik-mcp
           version: ${{ needs.prepare.outputs.version }}
@@ -129,7 +129,7 @@ jobs:
       contents: write
     steps:
       - name: Publish release
-        uses: Delnegend/actions/publish-release@0e55ed74d7039e8f1f5b23607345eefaef65d8b4 # v1
+        uses: Delnegend/actions/publish-release@fd9a429325e7c9103399f01855023e6b394457a2 # v1
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           publish: ${{ needs.prepare.outputs.publish }}
