@@ -25,7 +25,7 @@ re-apply a reviewed configuration.
 ## Getting the tool
 
 - **From a release archive** — `rosbackup` ships with every release
-  (linux amd64+arm64, darwin arm64, windows amd64).
+  (linux amd64, windows amd64). Other platforms build from source.
 - **From source** — `go run ./cmd/rosbackup` (needs the Go toolchain).
 - Inside this repo's devcontainer there is also `just backup` / `just restore`.
 

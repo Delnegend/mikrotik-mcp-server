@@ -75,15 +75,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Prebuilt binaries ship for Linux x64 and Windows x64 only. Every
+          # other platform builds from source, which the Homebrew formula
+          # expects: a formula that points at a prebuilt nobody publishes is
+          # a 404 for whoever installs it.
           - goos: linux
             goarch: amd64
             platform: linux/amd64
-          - goos: linux
-            goarch: arm64
-            platform: linux/arm64
-          - goos: darwin
-            goarch: arm64
-            platform: darwin/arm64
           - goos: windows
             goarch: amd64
             platform: windows/amd64
