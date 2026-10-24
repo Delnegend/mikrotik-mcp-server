@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Setup branch protection for autonomous-upgrade pipeline
+# Setup branch protection for ci-cd pipeline
 # Usage: ./scripts/setup-branch-protection.sh Delnegend/mikrotik-mcp-server [--dry-run]
 # Requires: gh cli authenticated with admin on repo
-# Strictly follows ~/.agents/skills/autonomous-upgrade skill
+# Strictly follows ~/.agents/skills/ci-cd skill
 
 REPO="${1:-}"
 DRY_RUN=false
