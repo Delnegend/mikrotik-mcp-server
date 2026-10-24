@@ -24,9 +24,7 @@ type API struct {
 func newAPI(reg *inventory.Registry) *API {
 	a := &API{reg: reg, safe: safemode.NewManager()}
 	if reg.Len() == 1 {
-		// Single device: keep one persistent, lazily-connected client (the
-		// historical behavior). Multi-device fleets open a fresh connection
-		// per command instead.
+		// Single device reuses persistent client; multi-device fleets connect per command.
 		d := reg.Default()
 		a.shared = d.Client()
 	}

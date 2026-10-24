@@ -69,7 +69,6 @@ func registerCoreTools(s *server.MCPServer, api *API) {
 		mcp.WithString("tag", mcp.Required(), mcp.Description("Tag of the command to cancel")),
 	), handlerCommandCancel(api))
 
-	// Ping and traceroute have parameters
 	addTool(s, mcp.NewTool("tool_ping",
 		mcp.WithDescription("Run a bounded ping from the router and return per-probe results."),
 		mcp.WithString("address", mcp.Required(), mcp.Description("Target address")),
@@ -179,7 +178,6 @@ func registerCoreTools(s *server.MCPServer, api *API) {
 	), handlerDNSSet(api))
 }
 
-// ---- Helper functions for argument extraction ----
 
 func argMap(req mcp.CallToolRequest) map[string]any {
 	m, _ := req.Params.Arguments.(map[string]any)
@@ -322,7 +320,6 @@ func stripControlKeys(attrs map[string]any, keys ...string) map[string]any {
 	return result
 }
 
-// ---- Handler implementations ----
 
 func handlerResourcePrint(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -775,16 +772,12 @@ func handlerHealthcheck(api *API) server.ToolHandlerFunc {
 			"target_host": cl.Host(),
 		}
 
-		// --- API health ---
 		apiResult := probeAPI(cl)
 
-		// --- SCP/SFTP health ---
 		scpResult := probeSCP(cl)
 
-		// --- Passwordless health ---
 		passwordlessResult := probePasswordless(cl, scpResult)
 
-		// --- Config info ---
 		config := map[string]any{
 			"api_credentials_configured": cl.Host() != "" && os.Getenv("MIKROTIK_USER") != "",
 			"api_passwordless_enabled":   helpers.ParseBool(os.Getenv("MIKROTIK_API_PASSWORDLESS_ENABLED"), false),
@@ -813,7 +806,6 @@ func handlerHealthcheck(api *API) server.ToolHandlerFunc {
 		data["passwordless"] = passwordlessResult
 		data["config"] = config
 
-		// --- Overall status ---
 		apiOK := false
 		if status, ok := apiResult["ok"]; ok {
 			apiOK, _ = status.(bool)

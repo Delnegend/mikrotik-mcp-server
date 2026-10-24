@@ -60,9 +60,6 @@ type ListenResult struct {
 	CancelFatal  map[string]string
 }
 
-// ---------------------------------------------------------------------------
-// Wire protocol: variable-length word encoding
-// ---------------------------------------------------------------------------
 
 func encodeLength(length int) ([]byte, error) {
 	if length < 0 {
@@ -186,9 +183,6 @@ func readSentence(r io.Reader) ([]string, error) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Reply parsing
-// ---------------------------------------------------------------------------
 
 func parseReplySentence(sentence []string) (string, map[string]string) {
 	if len(sentence) == 0 {
@@ -245,9 +239,6 @@ func parseReplySentences(sentences [][]string) *ReplyBundle {
 	return bundle
 }
 
-// ---------------------------------------------------------------------------
-// RouterOSClient
-// ---------------------------------------------------------------------------
 
 type RouterOSClient struct {
 	host       string
