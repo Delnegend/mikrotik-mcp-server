@@ -1,4 +1,4 @@
-# MikroTik MCP server — dev workflows
+# MikroTik MCP server: dev workflows
 #
 # Devcontainer recipes (Linux shell): run them inside the devcontainer, where
 # Go, just and qemu are preinstalled (see .devcontainer/Dockerfile).

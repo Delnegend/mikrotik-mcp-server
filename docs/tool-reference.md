@@ -1,7 +1,7 @@
 # Tool reference
 
 69 tools, grouped by area. Names below are the canonical `mcp.NewTool`
-registration strings — use them verbatim. Every device-scoped tool also
+registration strings; use them verbatim. Every device-scoped tool also
 accepts a `device` title; `jq_filter` applies to normalized `resource_print`
 output.
 

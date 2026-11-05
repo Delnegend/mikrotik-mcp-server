@@ -2,7 +2,7 @@
 // native RouterOS API: it sets the admin password, enables the api/api-ssl/ssh
 // services, and names the router. It connects as admin with an EMPTY password
 // (the CHR default), so it only works on a router that has not been
-// provisioned yet — run `bash scripts/chr/up.sh --fresh` to reset first.
+// provisioned yet; run `bash scripts/chr/up.sh --fresh` to reset first.
 //
 // Usage:  go run ./cmd/chrprovision [-host 127.0.0.1] [-port 8728] [-password admin]
 package main

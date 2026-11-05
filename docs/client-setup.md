@@ -35,5 +35,5 @@ The other three clients use the same shape with `command` / `args` / `env`
 keys per their own schema; only the key names differ, never the values.
 
 When `MIKROTIK_API_PASSWORDLESS_ENABLED=true`, `MIKROTIK_PASSWORD` is not
-needed — the server rotates the API password over SSH at startup. See
+needed; the server rotates the API password over SSH at startup. See
 [Configuration](configuration.md) for the full variable inventory.

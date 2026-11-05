@@ -21,7 +21,7 @@ docker run --rm --privileged -v "$PWD":/workspace -w /workspace \
 ```
 
 CHR ports (8728/8729/2222/8291/5555) are forwarded to the host. Without
-`/dev/kvm` qemu falls back to software emulation — workable, just slower.
+`/dev/kvm` qemu falls back to software emulation: workable, just slower.
 
 ## Build & run locally
 
@@ -40,7 +40,7 @@ Two layers, deliberately:
   golden traces transcribed from MikroTik's official API docs), formatting,
   runtime/env logic, and a stdio MCP subprocess smoke test. Fast and offline.
 - **Live-Router integration suite** (`internal/integration`, run via
-  `just test`): drives the real MCP tool registry against a RouterOS VM —
+  `just test`): drives the real MCP tool registry against a RouterOS VM:
   client login/print/mutation/listen, tool families, healthcheck, real SFTP
   downloads, host-key verification, opt-in real SSH password rotation,
   **multi-device fleet routing** (`list_devices`, `device=` targeting, unknown
@@ -48,7 +48,7 @@ Two layers, deliberately:
   the CLI session, rollback reverts, commit persists).
 
 The integration suite is **env-gated**: it skips when `MIKROTIK_TEST_HOST` is
-unset, and **fails** when it is set but the router is unreachable — a
+unset, and **fails** when it is set but the router is unreachable; a
 misconfigured run is loud, not silently green.
 
 ### Testing against a real RouterOS (CHR)
@@ -82,9 +82,9 @@ Notes:
 
 ## CI
 
-- **`ci.yml`** — `just check` plus `go test ./...` on every push and PR.
-- **`chr-integration.yml`** — the live-CHR suite, `workflow_dispatch`-only.
-- **`auto-merge.yml`** — auto-merges PRs labelled `dependencies`.
+- **`ci.yml`**: `just check` plus `go test ./...` on every push and PR.
+- **`chr-integration.yml`**: the live-CHR suite, `workflow_dispatch`-only.
+- **`auto-merge.yml`**: auto-merges PRs labelled `dependencies`.
 - **Dependabot** opens `github-actions` PRs weekly. Go has no native 14-day
   cooldown gate, so there is **no** dependency-upgrade workflow for Go
   modules; upgrade them by hand (`go get -u ./...`).

@@ -24,7 +24,7 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 
 BRANCH="main"
-echo "Setting up branch protection for $REPO ($BRANCH) — single 'Check (just check)' gate, linear history, rebase only + auto-merge..."
+echo "Setting up branch protection for $REPO ($BRANCH): single 'Check (just check)' gate, linear history, rebase only + auto-merge..."
 
 # 1. Enable auto-merge and rebase-only merges
 if $DRY_RUN; then
@@ -37,7 +37,7 @@ else
   echo "Repository merge settings updated."
 fi
 
-# 2. Branch protection — single 'Check (just check)' gate
+# 2. Branch protection: single 'Check (just check)' gate
 PROTECTION_JSON=$(cat <<'JSON'
 {
   "required_status_checks": {

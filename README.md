@@ -2,7 +2,7 @@
 
 # MikroTik MCP Server
 
-**Let AI assistants manage MikroTik routers over the native RouterOS API — one static binary, any MCP client.**
+**Let AI assistants manage MikroTik routers over the native RouterOS API: one static binary, any MCP client.**
 
 A Go port of [parkerkane/mikrotik-manager](https://github.com/parkerkane/mikrotik-manager).
 
@@ -27,14 +27,14 @@ brew install Delnegend/tap/mikrotik-mcp
 mikrotik-mcp -version
 ```
 
-Then ask your assistant to run `list_devices` — a healthy server answers with your fleet.
+Then ask your assistant to run `list_devices`; a healthy server answers with your fleet.
 
 ## Highlights
 
-- **Full router control from chat** — interfaces, routing, DHCP, DNS, firewall, WireGuard, and more.
-- **Fleet-ready** — manage many routers from one server; each call targets a device by title.
-- **Safe by default** — TLS verified, SSH host keys pinned, and Safe Mode holds changes until you commit.
-- **One binary, zero daemons** — speaks MCP over stdio; release archives also ship `rosbackup`.
+- **Full router control from chat**: interfaces, routing, DHCP, DNS, firewall, WireGuard, and more.
+- **Fleet-ready**: manage many routers from one server; each call targets a device by title.
+- **Safe by default**: TLS verified, SSH host keys pinned, and Safe Mode holds changes until you commit.
+- **One binary, zero daemons**: speaks MCP over stdio; release archives also ship `rosbackup`.
 
 ## Common Options
 
@@ -45,7 +45,7 @@ mikrotik-mcp -version        # prints the embedded build version
 
 | Option | Default | Description |
 |---|---|---|
-| `<router-host>` | — | Router hostname or IP (required positional arg) |
+| `<router-host>` | - | Router hostname or IP (required positional arg) |
 | `-version` | `false` | Print the embedded build version and exit |
 
 Full setup, environment, and flags live in **[Client Setup](docs/client-setup.md)** and **[Configuration](docs/configuration.md)**.
@@ -65,12 +65,12 @@ Component boundaries and guarantees: **[Architecture](docs/architecture.md)**. A
 
 ## Documentation
 
-- **[Client Setup](docs/client-setup.md)** — opencode, Claude Code, VS Code, Zed configs.
-- **[Configuration](docs/configuration.md)** — environment variables and fleet inventory.
-- **[Architecture](docs/architecture.md)** — components, safe mode, guarantees.
-- **[Tool Reference](docs/tool-reference.md)** — every MCP tool by area.
-- **[Backup & restore guide](docs/backup-restore.md)** — full disaster-recovery walkthrough.
-- **[Development](docs/development.md)** — build, test, and CHR suite.
+- **[Client Setup](docs/client-setup.md)**: opencode, Claude Code, VS Code, Zed configs.
+- **[Configuration](docs/configuration.md)**: environment variables and fleet inventory.
+- **[Architecture](docs/architecture.md)**: components, safe mode, guarantees.
+- **[Tool Reference](docs/tool-reference.md)**: every MCP tool by area.
+- **[Backup & restore guide](docs/backup-restore.md)**: full disaster-recovery walkthrough.
+- **[Development](docs/development.md)**: build, test, and CHR suite.
 
 ## License
 

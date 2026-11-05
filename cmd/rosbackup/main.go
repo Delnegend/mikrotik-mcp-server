@@ -1,7 +1,7 @@
 // Command rosbackup backs up and restores a RouterOS device configuration
 // over the native API plus fingerprint-pinned SFTP. Platform-agnostic: it is a
 // single Go binary, cross-compiled for linux/darwin/windows (see the release
-// matrix) — no shell/PowerShell twins needed.
+// matrix): no shell/PowerShell twins needed.
 //
 // Backup captures the full binary config (/system/backup/save, secrets
 // included) and optionally a portable text export (/export, secrets hidden).

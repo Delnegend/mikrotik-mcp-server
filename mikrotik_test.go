@@ -140,7 +140,7 @@ func TestBinaryRunsAsStdioMCPServer(t *testing.T) {
 		t.Errorf("got %d tools, want >= 55", len(tools))
 	}
 
-	// Graceful shutdown — send shutdown request
+	// Graceful shutdown: send shutdown request
 	shutdown := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      3,

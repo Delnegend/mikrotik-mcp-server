@@ -183,19 +183,19 @@ func diagnoseHealth(status string, data map[string]any) string {
 	pwdCode, _ := pwd["code"].(string)
 
 	if apiCode == "api.auth_failed" {
-		return "RouterOS API authentication failed — check MIKROTIK_USER and MIKROTIK_PASSWORD"
+		return "RouterOS API authentication failed: check MIKROTIK_USER and MIKROTIK_PASSWORD"
 	}
 	if apiCode == "api.connect_failed" {
-		return "Cannot connect to RouterOS API — check host and port"
+		return "Cannot connect to RouterOS API: check host and port"
 	}
 	if scpCode == "scp.config_missing" {
-		return "SCP configuration is incomplete — check MIKROTIK_SCP_PRIVATE_KEY or password credentials"
+		return "SCP configuration is incomplete: check MIKROTIK_SCP_PRIVATE_KEY or password credentials"
 	}
 	if scpCode == "scp.auth_failed" {
-		return "SCP authentication failed — check SCP username and credentials"
+		return "SCP authentication failed: check SCP username and credentials"
 	}
 	if scpCode == "scp.connect_failed" {
-		return "Cannot connect to SCP server — check MIKROTIK_SCP_HOST and port"
+		return "Cannot connect to SCP server: check MIKROTIK_SCP_HOST and port"
 	}
 	if pwdCode == "passwordless.fingerprint_missing" {
 		return "Passwordless rotation requires MIKROTIK_SCP_HOST_FINGERPRINT_SHA256"
@@ -209,7 +209,7 @@ func diagnoseHealth(status string, data map[string]any) string {
 	if pwdCode == "passwordless.exec_failed" {
 		return "Passwordless SSH command execution failed"
 	}
-	return "Multiple issues detected — review the healthcheck table above"
+	return "Multiple issues detected: review the healthcheck table above"
 }
 
 func escapeTableCell(value string) string {

@@ -38,13 +38,13 @@ Deep contributor internals live in [Development](development.md).
 
 The client is implemented and tested against MikroTik's official artifacts:
 
-- **API protocol** — [RouterOS API](https://manual.mikrotik.com/docs/developer-guides/api/)
+- **API protocol**: [RouterOS API](https://manual.mikrotik.com/docs/developer-guides/api/)
   documents framing, word-length encoding, sentences, queries, `.tag`, and
   `/login` + `/cancel` semantics, with exact example reply traces.
-- **Reference client** — [Python3 example](https://manual.mikrotik.com/docs/developer-guides/api/python3-example)
+- **Reference client**: [Python3 example](https://manual.mikrotik.com/docs/developer-guides/api/python3-example)
   is MikroTik's own wire-protocol implementation. Our encoder matches it
   byte-for-byte for every length class (`TestEncodeSentenceMatchesOfficialReference`).
-- **REST API** (RouterOS 7) — a cross-reference for command paths and
+- **REST API** (RouterOS 7): a cross-reference for command paths and
   attribute names; the server speaks the native binary protocol.
 
 There is **no official Go SDK or conformance suite**. `github.com/mikrotik`

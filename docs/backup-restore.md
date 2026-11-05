@@ -1,7 +1,7 @@
 # Backup & restore guide
 
 This guide covers backing up and restoring the **entire configuration** of a
-MikroTik RouterOS device with [`rosbackup`](../cmd/rosbackup/main.go) — the
+MikroTik RouterOS device with [`rosbackup`](../cmd/rosbackup/main.go), the
 repo's platform-agnostic CLI. It works on Linux, macOS, and Windows: a single
 Go binary, no shell or PowerShell twins.
 
@@ -24,9 +24,9 @@ re-apply a reviewed configuration.
 
 ## Getting the tool
 
-- **From a release archive** — `rosbackup` ships with every release
+- **From a release archive**: `rosbackup` ships with every release
   (linux amd64, windows amd64). Other platforms build from source.
-- **From source** — `go run ./cmd/rosbackup` (needs the Go toolchain).
+- **From source**: `go run ./cmd/rosbackup` (needs the Go toolchain).
 - Inside this repo's devcontainer there is also `just backup` / `just restore`.
 
 ## Backing up
@@ -86,14 +86,14 @@ Any scheduler works since the tool is a plain CLI. Example cron (nightly at
 
 `restore` uploads a `.backup` (applied via `/system/backup/load`) or `.rsc`
 (applied via `/import`), after keeping a timestamped pre-restore backup beside
-`-file` unless `-no-preserve`. The API session drops after a binary restore —
+`-file` unless `-no-preserve`. The API session drops after a binary restore:
 reconnect and verify.
 
 | Flag | Default | Description |
 |---|---|---|
-| `-file` | — | Local `.backup` or `.rsc` file (required) |
+| `-file` | - | Local `.backup` or `.rsc` file (required) |
 | `-no-preserve` | `false` | Skip the automatic pre-restore backup |
-| `-backup-password` | — | Password of the binary backup (must match save time) |
+| `-backup-password` | - | Password of the binary backup (must match save time) |
 
 ```sh
 # Exact restore of a binary backup
@@ -109,13 +109,13 @@ rosbackup restore -host 192.168.88.1 -fingerprint "SHA256:…" \
 
 What happens:
 
-1. **Safety net** — a timestamped `pre-restore-*.backup` of the *current*
+1. **Safety net**: a timestamped `pre-restore-*.backup` of the *current*
    config is taken and downloaded next to your restore file first (skip with
    `-no-preserve`). If the restore file is bad, you still have a way back.
 2. The file is uploaded to the router over SFTP.
 3. `.backup` files are applied with `/system backup load`; `.rsc` files with
    `/import`.
-4. The API session usually **drops after a binary restore** — this is normal.
+4. The API session usually **drops after a binary restore**; this is normal.
    The tool detects it and reports success; verify afterwards (see below).
 
 ### Verifying a restore
@@ -134,7 +134,7 @@ credentials, exactly what a restored router must have.
 ## Encrypted backups (RouterOS 7.17+)
 
 Newer RouterOS versions support encrypting binary backups. Use the same
-`-backup-password` on save **and** load — it is **not** recoverable:
+`-backup-password` on save **and** load; it is **not** recoverable:
 
 ```sh
 rosbackup backup  -backup-password "long-random" -export ...
@@ -154,7 +154,7 @@ run.
   `MIKROTIK_SCP_INSECURE=1` + the printed fingerprint, then pin it afterwards.
 - Prefer `-fingerprint`; set it permanently via
   `MIKROTIK_SCP_HOST_FINGERPRINT_SHA256` in your environment.
-- `-insecure` skips verification entirely — only for throwaway labs, never
+- `-insecure` skips verification entirely: only for throwaway labs, never
   for production routers.
 
 All connection flags fall back to the standard `MIKROTIK_*` variables (see
@@ -180,5 +180,5 @@ the MCP tools are for interactive sessions.
 
 ## Further reading
 
-- [Development docs](development.md) — test setup, the CHR test router, CI.
-- [README](../README.md) — general project overview and MCP tools.
+- [Development docs](development.md): test setup, the CHR test router, CI.
+- [README](../README.md): general project overview and MCP tools.
