@@ -1,0 +1,43 @@
+$schema: "https://raw.githubusercontent.com/Delnegend/actions/main/scripts/README.schema.json"
+
+name: MikroTik MCP Server
+repo: Delnegend/mikrotik-mcp-server
+tagline: "Let AI assistants manage MikroTik routers over the native RouterOS API: one static binary, any MCP client."
+
+badges:
+  ci: true
+  release: true
+  license: true
+
+quick_start: |
+  ```bash
+  # 1. Install
+  brew install Delnegend/tap/mikrotik-mcp
+
+  # 2. Register it with your MCP client (opencode shown; 3 more in docs)
+  # opencode.json -> "mcp": { "mikrotik": {
+  #   "type": "local", "command": ["mikrotik-mcp", "192.168.88.1"],
+  #   "environment": { "MIKROTIK_USER": "admin", "MIKROTIK_PASSWORD": "<…>" } } }
+
+  # 3. Verify
+  mikrotik-mcp -version
+  ```
+
+  Then ask your assistant to run `list_devices`; a healthy server answers with your fleet.
+
+highlights:
+  - "**Full router control from chat**: interfaces, routing, DHCP, DNS, firewall, WireGuard, and more."
+  - "**Fleet-ready**: manage many routers from one server; each call targets a device by title."
+  - "**Safe by default**: TLS verified, SSH host keys pinned, and Safe Mode holds changes until you commit."
+  - "**One binary, zero daemons**: speaks MCP over stdio; release archives also ship `rosbackup`."
+
+documentation:
+  architecture: "Components, safe mode console session, and protocol invariants."
+  development: "Building from source, running unit tests, and live-Router CHR integration suite."
+  deployment: "MCP client configuration, Homebrew tap, and prebuilt binary installation."
+
+license:
+  type:
+    - MIT
+  holder: "Delnegend"
+  filename: LICENSE
