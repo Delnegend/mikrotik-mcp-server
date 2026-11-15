@@ -34,7 +34,7 @@ highlights:
 documentation:
   architecture: "Components, safe mode console session, and protocol invariants."
   development: "Building from source, running unit tests, and live-Router CHR integration suite."
-  deployment: "MCP client configuration, Homebrew tap, and prebuilt binary installation."
+  deployment: "Homebrew and binaries; [client setup](docs/client-setup.md), [configuration](docs/configuration.md), [tool reference](docs/tool-reference.md), and [backup and restore](docs/backup-restore.md)."
 
 license:
   type:

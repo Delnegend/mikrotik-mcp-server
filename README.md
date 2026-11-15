@@ -40,7 +40,7 @@ Then ask your assistant to run `list_devices`; a healthy server answers with you
 
 - **[Architecture](docs/architecture.md)**: Components, safe mode console session, and protocol invariants.
 - **[Development](docs/development.md)**: Building from source, running unit tests, and live-Router CHR integration suite.
-- **[Deployment](docs/deployment.md)**: MCP client configuration, Homebrew tap, and prebuilt binary installation.
+- **[Deployment](docs/deployment.md)**: Homebrew and binaries; [client setup](docs/client-setup.md), [configuration](docs/configuration.md), [tool reference](docs/tool-reference.md), and [backup and restore](docs/backup-restore.md).
 
 ## License
 
