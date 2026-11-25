@@ -4,6 +4,12 @@
 		"dockerfile": "Dockerfile"
 	},
 	"remoteUser": "dev",
+	"mounts": [
+		"source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind"
+	],
+	"containerEnv": {
+		"SSH_AUTH_SOCK": "/ssh-agent"
+	},
 	"runArgs": [
 		"--hostname",
 		"mikrotik",
