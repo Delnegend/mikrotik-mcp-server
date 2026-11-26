@@ -60,7 +60,6 @@ type ListenResult struct {
 	CancelFatal  map[string]string
 }
 
-
 func encodeLength(length int) ([]byte, error) {
 	if length < 0 {
 		return nil, errors.New("word length must be non-negative")
@@ -183,7 +182,6 @@ func readSentence(r io.Reader) ([]string, error) {
 	}
 }
 
-
 func parseReplySentence(sentence []string) (string, map[string]string) {
 	if len(sentence) == 0 {
 		panic("sentence must not be empty")
@@ -238,7 +236,6 @@ func parseReplySentences(sentences [][]string) *ReplyBundle {
 	}
 	return bundle
 }
-
 
 type RouterOSClient struct {
 	host       string

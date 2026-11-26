@@ -178,7 +178,6 @@ func registerCoreTools(s *server.MCPServer, api *API) {
 	), handlerDNSSet(api))
 }
 
-
 func argMap(req mcp.CallToolRequest) map[string]any {
 	m, _ := req.Params.Arguments.(map[string]any)
 	result := make(map[string]any, len(m))
@@ -319,7 +318,6 @@ func stripControlKeys(attrs map[string]any, keys ...string) map[string]any {
 	}
 	return result
 }
-
 
 func handlerResourcePrint(api *API) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
